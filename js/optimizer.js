@@ -7,11 +7,13 @@
  * halbe Arbeitstage wie Heiligabend/Silvester exakt abgebildet werden können.
  */
 (function (root, factory) {
-  const H = typeof module === 'object' && module.exports ? require('./holidays.js') : root.UP;
-  const mod = factory(H);
+  const isNode = typeof module === 'object' && module.exports;
+  const H = isNode ? require('./holidays.js') : root.UP;
+  const F = isNode ? require('./ferien.js') : root.UP;
+  const mod = factory(H, F);
   if (typeof module === 'object' && module.exports) module.exports = mod;
   else root.UP = Object.assign(root.UP || {}, mod);
-})(typeof self !== 'undefined' ? self : this, function (H) {
+})(typeof self !== 'undefined' ? self : this, function (H, F) {
   'use strict';
 
   const { ymd, addDays, toISO, fromISO, dow, daysInYear } = H;
@@ -71,6 +73,7 @@
     reserveDays: 0,
     workdays: [1, 2, 3, 4, 5],
     specialDays: 'normal', // 24.12./31.12.: normal | half | free
+    mainMode: 'months', // months = Wunschmonate, sommer = Sommerferien des Bundeslands
     mainFrom: 7,
     mainTo: 8,
     orderId: 'gleit-eza-urlaub',
@@ -105,6 +108,7 @@
     s.mainFrom = Math.round(num(s.mainFrom, 7, 1, 12));
     s.mainTo = Math.round(num(s.mainTo, 8, 1, 12));
     if (s.mainTo < s.mainFrom) [s.mainFrom, s.mainTo] = [s.mainTo, s.mainFrom];
+    if (!['months', 'sommer'].includes(s.mainMode)) s.mainMode = 'months';
     if (!ORDERS.some((o) => o.id === s.orderId)) s.orderId = DEFAULTS.orderId;
     s.gleitForBridges = s.gleitForBridges !== false;
     const c = { ...DEFAULTS.custom, ...(s.custom || {}) };
@@ -649,12 +653,40 @@
     return false;
   }
 
+  /**
+   * Zeitraum, in dem der Haupturlaub liegen soll: die Wunschmonate oder die
+   * Sommerferien des Bundeslands (falls für das Jahr bekannt).
+   */
+  function mainWindowFor(s) {
+    const months = {
+      mode: 'months',
+      from: ymd(s.year, s.mainFrom, 1),
+      to: addDays(ymd(s.year + (s.mainTo === 12 ? 1 : 0), (s.mainTo % 12) + 1, 1), -1),
+      label: s.mainFrom === s.mainTo ? H.MONTHS[s.mainFrom - 1] : `${H.MONTHS[s.mainFrom - 1]} bis ${H.MONTHS[s.mainTo - 1]}`,
+    };
+    if (s.mainMode !== 'sommer') return months;
+    const jan1 = ymd(s.year, 1, 1);
+    const dec31 = ymd(s.year, 12, 31);
+    const summer = (F && F.getSchoolHolidays ? F.getSchoolHolidays(s.year, s.state) : [])
+      .filter((f) => f.cat === 'sommer' && f.start >= jan1 && f.start <= dec31)
+      .sort((x, y) => (y.end - y.start) - (x.end - x.start))[0];
+    if (!summer) return { ...months, fallback: true };
+    return {
+      mode: 'sommer',
+      from: Math.max(summer.start, jan1),
+      to: Math.min(summer.end, dec31),
+      label: `Sommerferien ${H.fmtShort(summer.start)} – ${H.fmtShort(summer.end)}`,
+    };
+  }
+
   function planScenario(cal, cands, s, sc, budget) {
     const notes = [];
     let main = null;
     if (sc.mainDays > 0) {
-      const a = indexOf(cal, ymd(s.year, s.mainFrom, 1));
-      const b = indexOf(cal, addDays(ymd(s.year + (s.mainTo === 12 ? 1 : 0), (s.mainTo % 12) + 1, 1), -1));
+      const win = mainWindowFor(s);
+      if (win.fallback) notes.push(`Für ${s.year} sind noch keine Sommerferien hinterlegt. Der Haupturlaub wird stattdessen im Zeitraum ${win.label} gesucht.`);
+      const a = indexOf(cal, win.from);
+      const b = indexOf(cal, win.to);
       main = { minCost: sc.mainDays * 2, a, b };
       if (fixedCoversMain(cal, main)) {
         main = null;
@@ -680,7 +712,7 @@
     }
     const selected = spreadBlocks(cal, cands, result.selected, (c) => c === mainBlock, sc.maxBlockDays);
     if (mainMissing && budget >= main.minCost) {
-      notes.push(`Ein Haupturlaub von ${sc.mainDays} Arbeitstagen passt nicht in den Wunschzeitraum. Prüfe Sperrzeiten und feste Termine im Haupturlaubs-Zeitraum.`);
+      notes.push(`Ein Haupturlaub von ${sc.mainDays} Arbeitstagen passt nicht in den Zeitraum für den Haupturlaub. Prüfe Sperrzeiten und feste Termine in diesem Zeitraum.`);
     } else if (mainMissing && budget > 0) {
       notes.push(`Für einen Haupturlaub von ${sc.mainDays} Arbeitstagen reicht das freie Kontingent nicht.`);
     }
@@ -735,12 +767,13 @@
       budget,
       opportunities: bridgeOpportunities(cal, cands),
       plans,
+      mainWindow: mainWindowFor(s),
     };
   }
 
   return {
     MARGIN, POOLS, POOL_LABEL, ORDERS, SCENARIOS, DEFAULTS,
     normalizeSettings, poolsFor, buildCalendar, buildCandidates, optimize, spreadBlocks,
-    allocate, applyOverrides, analyze, bridgeOpportunities, computePlans, indexOf, fmtNum,
+    allocate, applyOverrides, analyze, bridgeOpportunities, computePlans, indexOf, fmtNum, mainWindowFor,
   };
 });

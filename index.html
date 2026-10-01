@@ -110,9 +110,16 @@
               <option value="free">Arbeitsfrei</option>
             </select>
           </label>
-          <div class="row-2">
+          <label class="field">
+            <span>Haupturlaub legen in</span>
+            <select id="mainMode">
+              <option value="months">Wunschmonate</option>
+              <option value="sommer">Sommerferien des Bundeslands</option>
+            </select>
+          </label>
+          <div class="row-2" id="mainMonths">
             <label class="field">
-              <span>Haupturlaub ab</span>
+              <span>ab</span>
               <select id="mainFrom"></select>
             </label>
             <label class="field">
@@ -120,6 +127,7 @@
               <select id="mainTo"></select>
             </label>
           </div>
+          <p class="help" id="mainHint"></p>
           <label class="field">
             <span>Reserve, nicht verplanen (Tage)</span>
             <input id="reserveDays" type="number" min="0" max="100" step="0.5" inputmode="decimal">
@@ -182,6 +190,8 @@
 
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="js/holidays.js"></script>
+<script src="js/ferien-data.js"></script>
+<script src="js/ferien.js"></script>
 <script src="js/optimizer.js"></script>
 <script src="js/pdf.js"></script>
 <script src="js/app.js"></script>

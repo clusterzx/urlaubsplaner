@@ -17,8 +17,9 @@ Web-App, die Urlaub, EZA (Extrazeitausgleich) und Gleittage für ein Jahr so ver
 - **„Zu beantragen“:** je Urlaubsblock die konkreten Zeiträume pro Kontingent, zum Übertragen in den Urlaubsantrag.
 - **Manuell anpassen:** Ein Klick auf einen Arbeitstag im Kalender wechselt zwischen Urlaub, EZA, Gleitzeit und Arbeitstag. Alle Zahlen rechnen sofort mit.
 - **Beste Brückentage:** Übersicht der lohnendsten Kombinationen rund um jeden Feiertag.
+- **Schulferien:** im Kalender einblendbar, wahlweise für das gewählte Bundesland oder für alle Länder zusammen (je Ferienart vom frühesten Beginn bis zum spätesten Ende; der Tooltip zeigt, wie viele Länder an dem Tag Ferien haben). Der Reiter *Schulferien* listet die Termine des Bundeslands mit den Arbeitstagen, die man bräuchte, um sie komplett frei zu haben, und wie viele davon im Plan schon abgedeckt sind. Optional wird der Haupturlaub in die Sommerferien des Bundeslands gelegt.
 - **PDF-Export** (A4 quer): Jahresübersicht im Stil eines Wandplaners plus Blockliste, Feiertage und Grundlagen. Wahlweise das aktive Szenario oder alle Szenarien in einem PDF.
-- **Weitere Einstellungen:** Arbeitstage (z. B. 4-Tage-Woche), Heiligabend/Silvester als halbe oder freie Tage, Reserve, Wunschzeitraum für den Haupturlaub, Reihenfolge beim Verbuchen (z. B. Gleitzeit → EZA → Urlaub) und ob einzelne Brückentage bevorzugt mit Gleitzeit abgedeckt werden.
+- **Weitere Einstellungen:** Arbeitstage (z. B. 4-Tage-Woche), Heiligabend/Silvester als halbe oder freie Tage, Reserve, Zeitraum für den Haupturlaub (Wunschmonate oder Sommerferien), Reihenfolge beim Verbuchen (z. B. Gleitzeit → EZA → Urlaub) und ob einzelne Brückentage bevorzugt mit Gleitzeit abgedeckt werden.
 
 Alle Berechnungen laufen lokal im Browser. Eingaben werden nur im `localStorage` des Geräts gespeichert.
 
@@ -66,6 +67,14 @@ npm test
 
 Die Tests (Node ≥ 18, `node:test`) prüfen Feiertage und Osterdaten, Kalenderwochen, die Umrechnung der Überstunden sowie den Optimierer: Kontingent wird eingehalten, keine Buchungen auf Sperrzeiten, feste Zeiträume, Haupturlaub im Wunschzeitraum, halbe Tage und ein Abgleich mit einer Brute-Force-Suche.
 
+## Schulferien
+
+Die Schulferien aller 16 Bundesländer (allgemeinbildende Schulen) stecken für 2024 bis 2029 vollständig und für 2030 teilweise (Herbst- und Weihnachtsferien sind dort noch nicht veröffentlicht) in `js/ferien-data.js`, die App funktioniert damit auch offline und im Docker-Container ohne Internet. Quelle ist die [OpenHolidays API](https://www.openholidaysapi.org). Sonderregelungen wie die Ferien der Nordseeinseln oder der beruflichen Schulen in Mecklenburg-Vorpommern sind bewusst nicht enthalten.
+
+- **Aktualisieren:** `npm run update-ferien` lädt die Daten neu (Standard: zwei Jahre zurück bis vier Jahre voraus, oder `node scripts/update-ferien.js 2025 2032`).
+- **Spätere Jahre:** Wählt man ein Jahr, das nicht im Datenbestand steckt, lädt der Browser die Termine einmalig direkt bei der OpenHolidays API nach und merkt sie sich lokal. Ist noch nichts veröffentlicht, zeigt die App einen Hinweis.
+- Bei *Alle Länder* zählen einzelne schulfreie Tage (z. B. „Tag nach Himmelfahrt“) nicht in die Spanne vom frühesten Beginn bis zum spätesten Ende.
+
 ## So rechnet der Planer
 
 1. Der Kalender des Jahres wird aufgebaut (plus zwei Wochen Rand, damit Blöcke über den Jahreswechsel richtig gezählt werden). Jeder Arbeitstag kostet einen Tag, Heiligabend/Silvester optional einen halben.
@@ -83,6 +92,8 @@ Die Tests (Node ≥ 18, `node:test`) prüfen Feiertage und Osterdaten, Kalenderw
 | `index.html` | Seitengerüst und Formular |
 | `css/styles.css` | Gestaltung inkl. Dunkelmodus und Handy-Ansicht |
 | `js/holidays.js` | Datumsfunktionen, Feiertage aller Bundesländer, Kalenderwoche |
+| `js/ferien.js`, `js/ferien-data.js` | Schulferien: Zuordnung der Ferienarten, Übersicht aller Länder, Nachladen; Datenbestand |
+| `scripts/update-ferien.js` | Aktualisiert `js/ferien-data.js` aus der OpenHolidays API |
 | `js/optimizer.js` | Kalender, Kandidaten, Optimierung, Verteilung auf Kontingente, Auswertung |
 | `js/pdf.js` | PDF-Export mit jsPDF |
 | `js/app.js` | Oberfläche und Speicherung |
@@ -92,4 +103,4 @@ Die Tests (Node ≥ 18, `node:test`) prüfen Feiertage und Osterdaten, Kalenderw
 
 ## Hinweise
 
-Angaben ohne Gewähr. Regionale Feiertage, Betriebsvereinbarungen (z. B. zu Heiligabend/Silvester) und Regeln zur Übertragung von Resturlaub bitte im eigenen Betrieb prüfen. Schulferien sind nicht hinterlegt. Wer sie berücksichtigen möchte, trägt sie als festen Zeitraum ein oder passt den Wunschzeitraum für den Haupturlaub an.
+Angaben ohne Gewähr. Regionale Feiertage, Betriebsvereinbarungen (z. B. zu Heiligabend/Silvester) und Regeln zur Übertragung von Resturlaub bitte im eigenen Betrieb prüfen. Schulferien-Termine ohne Gewähr, maßgeblich sind die Veröffentlichungen der Kultusministerien.

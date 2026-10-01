@@ -17,7 +17,9 @@
     { id: 'bloecke', label: 'Urlaubsblöcke' },
     { id: 'brueckentage', label: 'Brückentage' },
     { id: 'feiertage', label: 'Feiertage' },
+    { id: 'ferien', label: 'Schulferien' },
   ];
+  const FERIEN_VIEWS = ['off', 'state', 'all'];
 
   const $ = (sel, el = document) => el.querySelector(sel);
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -44,6 +46,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         settings: state.settings, overrides: state.overrides, sig: state.sig, active: state.active, view: state.view,
+        ferienView: state.ferienView,
       }));
     } catch { /* Speichern ist optional */ }
   }
@@ -55,6 +58,8 @@
     sig: (saved && saved.sig) || null,
     active: (saved && saved.active) || 'ausgewogen',
     view: saved && VIEWS.some((v) => v.id === saved.view) ? saved.view : 'kalender',
+    ferienView: saved && FERIEN_VIEWS.includes(saved.ferienView) ? saved.ferienView : 'state',
+    ferienStatus: {}, // Jahr → 'loading' | 'failed'
     result: null,
   };
 
@@ -98,6 +103,7 @@
     $('#hoursPerDay').value = s.hoursPerDay;
     $('#reserveDays').value = s.reserveDays;
     $('#specialDays').value = s.specialDays;
+    $('#mainMode').value = s.mainMode;
     $('#mainFrom').value = s.mainFrom;
     $('#mainTo').value = s.mainTo;
     $('#orderId').value = s.orderId;
@@ -128,6 +134,7 @@
     s.hoursPerDay = numVal('#hoursPerDay');
     s.reserveDays = numVal('#reserveDays');
     s.specialDays = $('#specialDays').value;
+    s.mainMode = $('#mainMode').value;
     s.mainFrom = +$('#mainFrom').value;
     s.mainTo = +$('#mainTo').value;
     s.orderId = $('#orderId').value;
@@ -210,6 +217,7 @@
       state.overrides = {};
       state.sig = sig;
     }
+    ensureFerien(state.settings.year);
     state.result = UP.computePlans(state.settings, state.overrides);
     if (!state.result.plans.some((p) => p.scenario.id === state.active)) state.active = state.result.plans[0].scenario.id;
     renderAll();
@@ -224,9 +232,29 @@
     $('#appContext').textContent = `${s.year} · ${stateName(s.state)}`;
     document.title = `Urlaubsplaner ${s.year}`;
     renderGleitCalc();
+    renderMainHint();
     renderFixedList();
     renderComparison();
     renderPlan();
+  }
+
+  function renderMainHint() {
+    const s = state.settings;
+    const win = state.result.mainWindow;
+    $('#mainMonths').hidden = s.mainMode === 'sommer';
+    $('#mainHint').textContent = s.mainMode === 'sommer'
+      ? (win.mode === 'sommer' ? `${stateName(s.state)}: ${win.label}` : `Für ${s.year} sind noch keine Sommerferien bekannt, es gilt ${win.label}.`)
+      : '';
+  }
+
+  /** Lädt Schulferien für Jahre nach, die nicht im eingebauten Datenbestand stecken. */
+  function ensureFerien(year) {
+    if (UP.hasFerienYear(year) || state.ferienStatus[year]) return;
+    state.ferienStatus[year] = 'loading';
+    UP.fetchFerienYear(year).then((ok) => {
+      state.ferienStatus[year] = ok && UP.hasFerienYear(year) ? 'loaded' : 'failed';
+      if (state.settings.year === year) recompute();
+    });
   }
 
   /* ---------- Szenario-Vergleich ---------- */
@@ -294,9 +322,10 @@
       </div>`;
   }
 
-  function dayTitle(d, a) {
+  function dayTitle(d, a, ferien) {
     const parts = [`${UP.WEEKDAYS_LONG[d.dow]}, ${UP.fmtDate(d.t)} (KW ${UP.isoWeek(d.t)})`];
     if (d.holiday) parts.push(d.holiday);
+    if (ferien) parts.push(ferien);
     if (d.special === 'half') parts.push('halber Arbeitstag');
     if (d.special === 'free') parts.push('arbeitsfrei');
     if (a) parts.push(UP.POOL_LABEL[a.type] + (a.cost === 1 ? ' (halber Tag)' : ''));
@@ -305,9 +334,47 @@
     return parts.join(' · ');
   }
 
+  /** Schulferien-Markierung je Tag (Text für den Tooltip), abhängig von der Einblendung. */
+  function ferienOverlay() {
+    const { year, state: st } = state.settings;
+    const days = new Map();
+    if (state.ferienView === 'state') {
+      for (const f of UP.getSchoolHolidays(year, st)) {
+        for (let t = f.start; t <= f.end; t = UP.addDays(t, 1)) days.set(t, `Schulferien: ${f.name}`);
+      }
+    } else if (state.ferienView === 'all') {
+      const counts = UP.statesOnHoliday(year);
+      for (const g of UP.getCombinedFerien(year)) {
+        for (let t = g.start; t <= g.end; t = UP.addDays(t, 1)) {
+          const n = counts.has(t) ? counts.get(t).size : 0;
+          days.set(t, `${g.label}: Ferien in ${n} von 16 Ländern`);
+        }
+      }
+    }
+    return days;
+  }
+
+  function ferienStatusText() {
+    const { year } = state.settings;
+    if (UP.hasFerienYear(year)) return '';
+    return state.ferienStatus[year] === 'loading'
+      ? 'Schulferien werden geladen …'
+      : `Für ${year} liegen noch keine Schulferien vor.`;
+  }
+
+  function ferienSwitch() {
+    const opts = [['off', 'Aus'], ['state', stateName(state.settings.state)], ['all', 'Alle Länder']];
+    return `
+      <div class="seg" role="radiogroup" aria-label="Schulferien einblenden">
+        <span class="seg-label">Schulferien</span>
+        ${opts.map(([v, l]) => `<label><input type="radio" name="ferienView" value="${v}" ${state.ferienView === v ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}
+      </div>`;
+  }
+
   function renderCalendar(plan) {
     const cal = state.result.calendar;
     const { year } = state.settings;
+    const ferien = ferienOverlay();
     const inBlock = new Set();
     for (const b of plan.stats.blocks) for (let i = b.startIndex; i <= b.endIndex; i++) inBlock.add(i);
     const head = WD_ORDER.map((d) => `<span class="wd">${UP.WEEKDAYS_SHORT[d]}</span>`).join('');
@@ -334,7 +401,9 @@
         if (a && a.manual) cls.push('manual');
         if (d.fixed) cls.push('fixed');
         if (d.blocked) cls.push('blocked');
-        const title = esc(dayTitle(d, a));
+        const fer = ferien.get(t);
+        if (fer) cls.push('fer');
+        const title = esc(dayTitle(d, a, fer));
         const editable = d.cost > 0 && !d.fixed && !d.blocked;
         cells += editable
           ? `<button type="button" class="${cls.join(' ')}" data-i="${i}" title="${title}" aria-label="${title}">${dd}</button>`
@@ -346,8 +415,13 @@
           <div class="mgrid">${head}${cells}</div>
         </div>`;
     }
+    const ferLegend = state.ferienView === 'off' ? ''
+      : `<span><i class="day fer">1</i>${state.ferienView === 'all' ? 'Schulferien, frühester Beginn bis spätestes Ende' : `Schulferien ${esc(stateName(state.settings.state))}`}</span>`;
+    const status = state.ferienView === 'off' ? '' : ferienStatusText();
     return `
       <div class="panel">
+        <div class="cal-toolbar">${ferienSwitch()}</div>
+        ${status ? `<p class="notice">${esc(status)}</p>` : ''}
         <div class="legend" aria-label="Legende">
           <span><i class="day t-urlaub">1</i>Urlaub</span>
           <span><i class="day t-eza">1</i>EZA</span>
@@ -356,13 +430,14 @@
           <span><i class="day inblock">1</i>frei im Block</span>
           <span><i class="day fixed">1</i>fester Termin</span>
           <span><i class="day blocked">1</i>Sperrzeit</span>
+          ${ferLegend}
         </div>
         <div class="months">${months}</div>
         <p class="hint">Klick auf einen Arbeitstag wechselt zwischen Urlaub, EZA, Gleitzeit und Arbeitstag. Die Zahlen rechnen sofort mit.</p>
       </div>`;
   }
 
-  function reasonOf(b) {
+  function reasonOf(b, ferList) {
     const parts = [];
     if (b.labels.length) parts.push(`<span class="label-fixed">Fest</span>${b.labels.map(esc).join(', ')}`);
     else if (b.fixed) parts.push('<span class="label-fixed">Fest</span>');
@@ -370,6 +445,8 @@
     if (names.length) parts.push(`<span class="hl">${names.map(esc).join(', ')}</span>`);
     if (b.manual) parts.push('<span class="label-fixed">Manuell</span>');
     if (!parts.length) parts.push(b.booked <= 2 ? 'Verlängertes Wochenende' : 'Urlaub');
+    const fer = [...new Set(ferList.filter((f) => f.start <= b.end && f.end >= b.start).map((f) => f.label))];
+    if (fer.length) parts.push(`<span class="fer-note">in den ${fer.map(esc).join(', ')}</span>`);
     return parts.join(' ');
   }
 
@@ -377,6 +454,7 @@
     const blocks = plan.stats.blocks;
     if (!blocks.length) return '<p class="empty">Keine Urlaubsblöcke geplant. Prüfe die Kontingente in der linken Spalte.</p>';
     const cell = (v) => (v ? fmt(v) : '<span class="muted">–</span>');
+    const ferList = UP.getSchoolHolidays(state.settings.year, state.settings.state).filter((f) => f.cat !== 'einzeln');
     const rows = blocks.map((b) => `
       <tr>
         <td class="nowrap">${UP.fmtRange(b.start, b.end)}</td>
@@ -386,7 +464,7 @@
         <td class="num">${cell(b.used.gleit)}</td>
         <td class="num">${factor(b.ratio)}</td>
         <td><div class="ranges">${b.ranges.map((r) => `<span><i class="sw sw-${r.type}" aria-hidden="true"></i>${UP.POOL_LABEL[r.type]} ${UP.fmtRange(r.from, r.to)}</span>`).join('')}</div></td>
-        <td class="reason">${reasonOf(b)}</td>
+        <td class="reason">${reasonOf(b, ferList)}</td>
       </tr>`).join('');
     const st = plan.stats;
     return `
@@ -464,11 +542,95 @@
       </div>`;
   }
 
+  /** Zeitraum mit Jahreszahl, wenn er über den Jahreswechsel geht. */
+  function ferienRange(a, b) {
+    const y = state.settings.year;
+    const ya = new Date(a).getUTCFullYear();
+    const yb = new Date(b).getUTCFullYear();
+    if (ya === y && yb === y) return UP.fmtRange(a, b);
+    const one = (t, yy) => `${UP.fmtShort(t)}${yy !== y ? yy : ''}`;
+    return a === b ? one(a, ya) : `${one(a, ya)} – ${one(b, yb)}`;
+  }
+
+  function renderFerien(plan) {
+    const s = state.settings;
+    const { year } = s;
+    const status = ferienStatusText();
+    if (status) return `<p class="empty">${esc(status)}</p>`;
+    const cal = state.result.calendar;
+    const jan1 = UP.ymd(year, 1, 1);
+    const dec31 = UP.ymd(year, 12, 31);
+    const countIn = (f) => {
+      let work = 0;
+      let booked = 0;
+      for (let t = Math.max(f.start, jan1); t <= Math.min(f.end, dec31); t = UP.addDays(t, 1)) {
+        const i = UP.indexOf(cal, t);
+        work += cal.days[i].cost / 2;
+        const a = plan.assign.get(i);
+        if (a) booked += a.cost / 2;
+      }
+      return { work, booked };
+    };
+    const days = (f) => Math.round((f.end - f.start) / UP.DAY_MS) + 1;
+
+    const own = UP.getSchoolHolidays(year, s.state);
+    const ownRows = own.map((f) => {
+      const { work, booked } = countIn(f);
+      const title = f.cat === 'einzeln' ? f.name : f.label;
+      const sub = f.cat !== 'einzeln' && f.name !== f.label ? `<span class="pool-sub">${esc(f.name)}</span>` : '';
+      return `
+        <tr class="${f.cat === 'einzeln' ? 'single' : ''}">
+          <td><strong>${esc(title)}</strong>${sub}</td>
+          <td class="nowrap">${ferienRange(f.start, f.end)}</td>
+          <td class="num opt-col">${days(f)}</td>
+          <td class="num opt-col">${fmt(work)}</td>
+          <td class="num">${work ? `${fmt(booked)} von ${fmt(work)}` : '<span class="muted">–</span>'}</td>
+        </tr>`;
+    }).join('');
+    const missing = UP.missingFerien(year, s.state);
+
+    const combined = UP.getCombinedFerien(year);
+    const allRows = combined.map((g) => `
+      <tr>
+        <td><strong>${esc(g.label)}</strong></td>
+        <td class="nowrap">${ferienRange(g.start, g.start)}<span class="pool-sub">${g.firstStates.join(', ')}</span></td>
+        <td class="nowrap">${ferienRange(g.end, g.end)}<span class="pool-sub">${g.lastStates.join(', ')}</span></td>
+        <td class="num opt-col">${Math.round((g.end - g.start) / UP.DAY_MS) + 1}</td>
+        <td class="num opt-col">${g.states.length}</td>
+      </tr>`).join('');
+
+    const updated = UP.FERIEN_UPDATED ? `, Stand ${UP.fmtDate(UP.fromISO(UP.FERIEN_UPDATED))}` : '';
+    return `
+      <div class="sub-head">
+        <h3>${esc(stateName(s.state))} ${year}</h3>
+        <p class="muted">„Arbeitstage“ = so viele Tage brauchst du, um die Ferien komplett frei zu haben. „Im Plan“ zeigt, wie viele davon „${esc(plan.scenario.name)}“ schon abdeckt.</p>
+      </div>
+      ${missing.length ? `<div class="notices"><p class="notice">${esc(missing.join(', '))} ${year} für ${esc(stateName(s.state))} sind noch nicht veröffentlicht.</p></div>` : ''}
+      <div class="table-wrap">
+        <table class="ferien">
+          <thead><tr><th>Ferien</th><th>Zeitraum</th><th class="num opt-col">Tage</th><th class="num opt-col">Arbeitstage ${year}</th><th class="num">Im Plan frei</th></tr></thead>
+          <tbody>${ownRows}</tbody>
+        </table>
+      </div>
+      <div class="sub-head">
+        <h3>Alle Bundesländer ${year}</h3>
+        <p class="muted">Je Ferienart der früheste Beginn und das späteste Ende über alle 16 Länder, ohne einzelne schulfreie Tage.</p>
+      </div>
+      <div class="table-wrap">
+        <table class="ferien">
+          <thead><tr><th>Ferien</th><th>Frühester Beginn</th><th>Spätestes Ende</th><th class="num opt-col">Tage</th><th class="num opt-col">Länder</th></tr></thead>
+          <tbody>${allRows}</tbody>
+        </table>
+      </div>
+      <p class="panel-intro">Quelle: ${esc(UP.FERIEN_SOURCE)}${updated}. Sonderregelungen, z. B. für die Nordseeinseln oder berufliche Schulen, sind nicht berücksichtigt.</p>`;
+  }
+
   function renderView(plan) {
     switch (state.view) {
       case 'bloecke': return renderBlocks(plan);
       case 'brueckentage': return renderOpportunities();
       case 'feiertage': return renderHolidays();
+      case 'ferien': return renderFerien(plan);
       default: return renderCalendar(plan);
     }
   }
@@ -488,6 +650,7 @@
       bloecke: st.blocks.length,
       brueckentage: state.result.opportunities.length,
       feiertage: state.result.holidays.length,
+      ferien: UP.getSchoolHolidays(state.settings.year, state.settings.state).filter((f) => f.cat !== 'einzeln').length || undefined,
     };
     const tabs = VIEWS.map((v) => `
       <button type="button" class="tab" role="tab" id="view-${v.id}" data-view="${v.id}" aria-selected="${v.id === state.view}" tabindex="${v.id === state.view ? 0 : -1}">
@@ -549,7 +712,7 @@
 
   function exportPdf(all) {
     try {
-      UP.exportPdf(state.result, all ? state.result.plans : [activePlan()]);
+      UP.exportPdf(state.result, all ? state.result.plans : [activePlan()], { ferienView: state.ferienView });
     } catch (e) {
       console.error(e);
       const n = document.createElement('p');
@@ -658,6 +821,14 @@
         renderPlan();
         save();
       }
+    });
+    plan.addEventListener('change', (e) => {
+      if (e.target.name !== 'ferienView') return;
+      state.ferienView = e.target.value;
+      renderPlan();
+      const input = $(`#plan input[name="ferienView"][value="${state.ferienView}"]`);
+      if (input) input.focus();
+      save();
     });
     plan.addEventListener('keydown', (e) => {
       if (!e.target.closest('[role="tab"]') || !['ArrowRight', 'ArrowLeft'].includes(e.key)) return;

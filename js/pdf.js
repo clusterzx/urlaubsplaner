@@ -29,6 +29,7 @@
     gleit: [220, 142, 11],
     gleitTint: [252, 229, 189],
     gleitInk: [119, 71, 0],
+    fer: [19, 145, 122],
   };
   const TINT = { urlaub: C.urlaubTint, eza: C.ezaTint, gleit: C.gleitTint };
   const STRONG = { urlaub: C.urlaub, eza: C.eza, gleit: C.gleit };
@@ -137,7 +138,40 @@
   }
 
   /** Jahresstreifen: 12 Zeilen (Monate) x 31 Spalten (Tage). */
-  function yearStrip(doc, result, plan, y0) {
+  /** Tage mit Schulferien je nach Einblendung (Bundesland oder alle Länder). */
+  function ferienDays(result, mode) {
+    const days = new Set();
+    const { year, state } = result.settings;
+    if (mode === 'state') {
+      for (const f of UP.getSchoolHolidays(year, state)) for (let t = f.start; t <= f.end; t = UP.addDays(t, 1)) days.add(t);
+    } else if (mode === 'all') {
+      for (const g of UP.getCombinedFerien(year)) for (let t = g.start; t <= g.end; t = UP.addDays(t, 1)) days.add(t);
+    }
+    return days;
+  }
+
+  /** Kurzer Zeitraum für die Ferienzeile, mit Jahr nur über den Jahreswechsel. */
+  function shortRange(year, a, b) {
+    const f = (t) => (new Date(t).getUTCFullYear() === year ? UP.fmtDate(t).slice(0, 6) : UP.fmtDate(t));
+    return a === b ? f(a) : `${f(a)}-${f(b)}`;
+  }
+
+  function ferienLine(result, mode) {
+    const { year, state } = result.settings;
+    if (mode === 'state') {
+      const list = UP.getSchoolHolidays(year, state).filter((f) => f.cat !== 'einzeln');
+      if (!list.length) return '';
+      return `Schulferien ${stateName(state)} ${year}: ${list.map((f) => `${f.label} ${shortRange(year, f.start, f.end)}`).join(', ')}.`;
+    }
+    if (mode === 'all') {
+      const list = UP.getCombinedFerien(year);
+      if (!list.length) return '';
+      return `Schulferien aller Länder ${year} (frühester Beginn bis spätestes Ende): ${list.map((g) => `${g.label} ${shortRange(year, g.start, g.end)}`).join(', ')}.`;
+    }
+    return '';
+  }
+
+  function yearStrip(doc, result, plan, y0, ferien) {
     const s = result.settings;
     const cal = result.calendar;
     const labelW = 16;
@@ -179,6 +213,10 @@
           fill(doc, STRONG[a.type]);
           doc.rect(x, y + rowH - 0.9, cellW, 0.9, 'F');
         }
+        if (ferien.has(day.t)) {
+          fill(doc, C.fer);
+          doc.rect(x, y, cellW, 1, 'F');
+        }
         if (day.fixed) {
           stroke(doc, C.ink);
           doc.setLineWidth(0.45);
@@ -209,7 +247,7 @@
     return y0 + 12 * rowH;
   }
 
-  function legend(doc, y) {
+  function legend(doc, y, ferienLabel) {
     const items = [
       { bg: C.urlaubTint, bar: C.urlaub, code: 'U', ink: C.urlaubInk, label: 'Urlaub' },
       { bg: C.ezaTint, bar: C.eza, code: 'E', ink: C.ezaInk, label: 'EZA' },
@@ -220,6 +258,7 @@
       { bg: C.white, frame: true, label: 'fester Termin' },
       { bg: C.sperre, label: 'Sperrzeit' },
     ];
+    if (ferienLabel) items.push({ bg: C.white, top: C.fer, label: ferienLabel });
     let x = M;
     doc.setLineWidth(0.15);
     for (const it of items) {
@@ -227,6 +266,7 @@
       stroke(doc, C.line);
       doc.rect(x, y - 3.2, 5, 4.4, 'FD');
       if (it.bar) { fill(doc, it.bar); doc.rect(x, y + 0.6, 5, 0.6, 'F'); }
+      if (it.top) { fill(doc, it.top); doc.rect(x, y - 3.2, 5, 0.8, 'F'); }
       if (it.frame) { stroke(doc, C.ink); doc.setLineWidth(0.45); doc.rect(x + 0.3, y - 2.9, 4.4, 3.8, 'S'); doc.setLineWidth(0.15); }
       if (it.code) { font(doc, 5.5, 'bold', it.ink); text(doc, it.code, x + 2.5, y - 0.1, { align: 'center' }); }
       font(doc, 7.5, 'normal', C.ink2);
@@ -235,8 +275,9 @@
     }
   }
 
-  function notesBlock(doc, plan, y) {
+  function notesBlock(doc, plan, y, extra) {
     const lines = [...plan.notes, ...plan.stats.warnings];
+    if (extra) lines.push(extra);
     const st = plan.stats;
     const unplanned = st.remaining.urlaub + st.remaining.eza + st.remaining.gleit;
     if (unplanned > 0.01 && !st.warnings.length) lines.push(`${plural(unplanned, 'Tag ist', 'Tage sind')} noch nicht verplant.`);
@@ -429,25 +470,28 @@
     }
   }
 
-  function drawPlan(doc, result, plan) {
+  function drawPlan(doc, result, plan, opts = {}) {
+    const mode = opts.ferienView || 'off';
+    const ferien = ferienDays(result, mode);
+    const ferienLabel = !ferien.size ? '' : mode === 'all' ? 'Schulferien (alle Länder)' : `Schulferien ${result.settings.state}`;
     header(doc, result, plan, plan.scenario.description);
     const y = summaryBoxes(doc, result, plan, 30);
-    const end = yearStrip(doc, result, plan, y + 9);
-    legend(doc, end + 6);
-    notesBlock(doc, plan, end + 13);
+    const end = yearStrip(doc, result, plan, y + 9, ferien);
+    legend(doc, end + 6, ferienLabel);
+    notesBlock(doc, plan, end + 13, ferien.size ? ferienLine(result, mode) : '');
     doc.addPage();
     header(doc, result, plan);
     sidePanel(doc, result);
     blocksTable(doc, result, plan);
   }
 
-  function buildPdf(result, plans) {
+  function buildPdf(result, plans, opts) {
     const { jsPDF } = root.jspdf;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
     doc.setProperties({ title: `Urlaubsplan ${result.settings.year}`, creator: 'Urlaubsplaner' });
     plans.forEach((plan, k) => {
       if (k) doc.addPage();
-      drawPlan(doc, result, plan);
+      drawPlan(doc, result, plan, opts);
     });
     footer(doc);
     return doc;
@@ -460,8 +504,8 @@
     return plans.length === 1 ? `${base}_${slug(plans[0].scenario.name)}.pdf` : `${base}_alle-Szenarien.pdf`;
   }
 
-  function exportPdf(result, plans) {
-    const doc = buildPdf(result, plans);
+  function exportPdf(result, plans, opts) {
+    const doc = buildPdf(result, plans, opts);
     doc.save(fileName(result, plans));
     return doc;
   }

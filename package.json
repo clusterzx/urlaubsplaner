@@ -6,6 +6,7 @@
   "license": "MIT",
   "scripts": {
     "test": "node --test tests/*.test.js",
+    "update-ferien": "node scripts/update-ferien.js",
     "start": "npx --yes serve .",
     "docker:build": "docker build -t urlaubsplaner .",
     "docker:run": "docker run -d --name urlaubsplaner -p 6533:6533 --restart unless-stopped urlaubsplaner"
