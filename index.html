@@ -7,22 +7,22 @@
 <meta name="description" content="Plant Urlaub, EZA und Gleittage so, dass Feiertage und Brückentage optimal genutzt werden – mit mehreren Szenarien und PDF-Export.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-<header class="masthead">
-  <div class="masthead-inner">
-    <h1 class="brand">Urlaubsplaner <span class="brand-year" id="brandYear">2027</span></h1>
-    <p class="tagline">Urlaub, EZA und Gleittage so legen, dass aus jedem Feiertag das Meiste wird.</p>
+<header class="topbar">
+  <div class="topbar-inner">
+    <span class="app-name">Urlaubsplaner</span>
+    <span class="app-context" id="appContext">2027 · Bayern</span>
   </div>
 </header>
 
 <div class="layout">
-  <aside class="panel" aria-label="Eingaben">
+  <aside class="sidebar" aria-label="Eingaben">
     <form id="settingsForm" autocomplete="off">
-      <fieldset class="group">
-        <legend>Jahr &amp; Bundesland</legend>
+      <section class="group">
+        <h2 class="group-title">Jahr und Bundesland</h2>
         <div class="row-2">
           <label class="field">
             <span>Jahr</span>
@@ -34,23 +34,23 @@
           </label>
         </div>
         <div id="regional" class="regional"></div>
-      </fieldset>
+      </section>
 
-      <fieldset class="group">
-        <legend>Kontingente</legend>
+      <section class="group">
+        <h2 class="group-title">Kontingente</h2>
         <div class="row-2">
           <label class="field">
-            <span><i class="sw sw-urlaub" aria-hidden="true"></i>Urlaubstage</span>
+            <span>Urlaubstage</span>
             <input id="urlaubDays" type="number" min="0" max="100" step="0.5" inputmode="decimal">
           </label>
           <label class="field">
-            <span><i class="sw sw-eza" aria-hidden="true"></i>EZA-Tage</span>
+            <span>EZA-Tage</span>
             <input id="ezaDays" type="number" min="0" max="100" step="0.5" inputmode="decimal">
           </label>
         </div>
         <div class="row-2">
           <label class="field">
-            <span><i class="sw sw-gleit" aria-hidden="true"></i>Überstunden (h)</span>
+            <span>Überstunden (h)</span>
             <input id="overtimeHours" type="number" min="0" max="2000" step="0.1" inputmode="decimal">
           </label>
           <label class="field">
@@ -59,11 +59,11 @@
           </label>
         </div>
         <p class="calc" id="gleitCalc"></p>
-      </fieldset>
+      </section>
 
-      <fieldset class="group">
-        <legend>Feste Zeiträume</legend>
-        <p class="help">Termine, die dir wichtig sind, werden immer eingeplant. Bei „Automatisch“ wählt der Planer das Kontingent. Sperrzeiten bleiben frei von Urlaub.</p>
+      <section class="group">
+        <h2 class="group-title">Feste Zeiträume</h2>
+        <p class="help">Werden immer eingeplant. Sperrzeiten bleiben frei von Urlaub.</p>
         <div class="row-2">
           <label class="field">
             <span>Von</span>
@@ -82,32 +82,32 @@
               <option value="urlaub">Urlaub</option>
               <option value="eza">EZA</option>
               <option value="gleit">Gleitzeit</option>
-              <option value="sperre">Sperrzeit (kein Urlaub)</option>
+              <option value="sperre">Sperrzeit</option>
             </select>
           </label>
           <label class="field">
             <span>Bezeichnung</span>
-            <input id="fxLabel" type="text" maxlength="80" placeholder="z. B. Hochzeit Anna">
+            <input id="fxLabel" type="text" maxlength="80" placeholder="optional">
           </label>
         </div>
-        <button type="button" class="btn btn-secondary" id="fxAdd">Zeitraum hinzufügen</button>
+        <button type="button" class="btn" id="fxAdd">Zeitraum hinzufügen</button>
         <p class="form-error" id="fxError" hidden></p>
         <ul class="fixed-list" id="fixedList"></ul>
-      </fieldset>
+      </section>
 
       <details class="group">
-        <summary>Weitere Einstellungen</summary>
+        <summary class="group-title">Weitere Einstellungen</summary>
         <div class="details-body">
           <div class="field">
             <span>Arbeitstage</span>
             <div class="weekdays" id="workdays"></div>
           </div>
           <label class="field">
-            <span>Heiligabend &amp; Silvester (24.12. / 31.12.)</span>
+            <span>24.12. und 31.12.</span>
             <select id="specialDays">
               <option value="normal">Normale Arbeitstage</option>
-              <option value="half">Halbe Arbeitstage (zählen 0,5)</option>
-              <option value="free">Arbeitsfrei (Betriebsvereinbarung)</option>
+              <option value="half">Halbe Arbeitstage</option>
+              <option value="free">Arbeitsfrei</option>
             </select>
           </label>
           <div class="row-2">
@@ -136,7 +136,7 @@
       </details>
 
       <details class="group">
-        <summary>Eigenes Szenario</summary>
+        <summary class="group-title">Eigenes Szenario</summary>
         <div class="details-body">
           <div class="row-3">
             <label class="field">
@@ -144,36 +144,40 @@
               <input id="customMaxBlocks" type="number" min="1" max="20" step="1">
             </label>
             <label class="field">
-              <span>Haupturlaub (AT)</span>
+              <span>Haupturlaub</span>
               <input id="customMainDays" type="number" min="0" max="30" step="1">
             </label>
             <label class="field">
-              <span>Max. Länge (AT)</span>
+              <span>Max. Länge</span>
               <input id="customMaxBlockDays" type="number" min="1" max="30" step="1">
             </label>
           </div>
-          <p class="help">AT = Arbeitstage. Haupturlaub 0 heißt: kein Pflicht-Block im Wunschzeitraum.</p>
+          <p class="help">Angaben in Arbeitstagen. Haupturlaub 0 = kein fester Block im Wunschzeitraum.</p>
         </div>
       </details>
 
-      <button type="button" class="btn btn-ghost" id="resetAll">Alle Eingaben zurücksetzen</button>
-      <p class="form-error" id="resetConfirm" hidden></p>
+      <div class="group group-last">
+        <button type="button" class="btn-link" id="resetAll">Alle Eingaben zurücksetzen</button>
+        <p class="form-error" id="resetConfirm" hidden></p>
+      </div>
     </form>
   </aside>
 
-  <main class="results" id="results">
-    <section class="overview" id="overview" aria-label="Kontingente"></section>
-    <section class="scenarios" id="scenarios" role="tablist" aria-label="Szenarien"></section>
-    <section class="plan" id="plan" role="tabpanel"></section>
-    <div class="aside-grid">
-      <section class="card" id="opportunities"></section>
-      <section class="card" id="holidays"></section>
-    </div>
+  <main class="main" id="results">
+    <section class="section" aria-labelledby="cmpTitle">
+      <div class="section-head">
+        <h2 id="cmpTitle">Szenarien im Vergleich</h2>
+        <p class="muted">Ein Szenario auswählen, um den Plan zu sehen.</p>
+      </div>
+      <div class="table-wrap" id="scenarios"></div>
+    </section>
+
+    <section class="section" id="plan" aria-live="polite"></section>
   </main>
 </div>
 
 <footer class="footer">
-  <p>Alle Berechnungen laufen lokal im Browser. Deine Eingaben werden nur auf diesem Gerät gespeichert. Angaben ohne Gewähr; regionale Feiertage und betriebliche Regelungen bitte prüfen.</p>
+  <p>Alle Berechnungen laufen lokal im Browser, Eingaben werden nur auf diesem Gerät gespeichert. Angaben ohne Gewähr; regionale Feiertage und betriebliche Regelungen bitte prüfen.</p>
 </footer>
 
 <script src="vendor/jspdf.umd.min.js"></script>

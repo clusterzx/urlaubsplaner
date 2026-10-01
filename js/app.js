@@ -1,6 +1,6 @@
 /*
  * Oberfläche: liest die Eingaben, ruft die Planungs-Engine auf und zeichnet
- * Kontingente, Szenarien, Kalender und Listen. Speichert Eingaben im
+ * Szenario-Vergleich, Kontingente, Kalender und Listen. Speichert Eingaben im
  * localStorage (nur auf diesem Gerät).
  */
 (function () {
@@ -9,9 +9,15 @@
   const UP = window.UP;
   const STORAGE_KEY = 'urlaubsplaner.v1';
   const TYPE_LABEL = { urlaub: 'Urlaub', eza: 'EZA', gleit: 'Gleitzeit', auto: 'Automatisch', sperre: 'Sperrzeit' };
-  const TYPE_CODE = { urlaub: 'U', eza: 'E', gleit: 'G' };
+  const POOL_TYPES = ['urlaub', 'eza', 'gleit'];
   const CYCLE = [null, 'urlaub', 'eza', 'gleit'];
   const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
+  const VIEWS = [
+    { id: 'kalender', label: 'Kalender' },
+    { id: 'bloecke', label: 'Urlaubsblöcke' },
+    { id: 'brueckentage', label: 'Brückentage' },
+    { id: 'feiertage', label: 'Feiertage' },
+  ];
 
   const $ = (sel, el = document) => el.querySelector(sel);
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -37,7 +43,7 @@
   function save() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        settings: state.settings, overrides: state.overrides, sig: state.sig, active: state.active,
+        settings: state.settings, overrides: state.overrides, sig: state.sig, active: state.active, view: state.view,
       }));
     } catch { /* Speichern ist optional */ }
   }
@@ -48,6 +54,7 @@
     overrides: (saved && saved.overrides) || {},
     sig: (saved && saved.sig) || null,
     active: (saved && saved.active) || 'ausgewogen',
+    view: saved && VIEWS.some((v) => v.id === saved.view) ? saved.view : 'kalender',
     result: null,
   };
 
@@ -77,7 +84,7 @@
     $('#regional').innerHTML = opts.map((r) => `
       <label class="check">
         <input type="checkbox" value="${r.id}" id="reg-${r.id}" ${s.regional.includes(r.id) ? 'checked' : ''}>
-        <span>${esc(r.name)} mitzählen<small>${esc(r.hint)}</small></span>
+        <span>${esc(r.name)}<small>${esc(r.hint)}</small></span>
       </label>`).join('');
   }
 
@@ -140,7 +147,7 @@
     const days = Math.floor(s.overtimeHours / s.hoursPerDay + 1e-9);
     const rest = s.overtimeHours - days * s.hoursPerDay;
     $('#gleitCalc').innerHTML = `${fmt(s.overtimeHours)} h ÷ ${fmt(s.hoursPerDay, 2)} h = <strong>${plural(days, 'Gleittag', 'Gleittage')}</strong>`
-      + (rest > 0.001 ? ` · Rest ${fmt(rest, 2)} h` : '');
+      + (rest > 0.001 ? `, Rest ${fmt(rest, 2)} h` : '');
   }
 
   /* ---------- Feste Zeiträume ---------- */
@@ -153,12 +160,12 @@
       const b = UP.fromISO(f.to);
       let cost = 0;
       if (cal) for (const d of cal.days) if (d.inYear && d.t >= a && d.t <= b) cost += d.cost;
-      const outside = UP.fromISO(f.to) < UP.ymd(year, 1, 1) || UP.fromISO(f.from) > UP.ymd(year, 12, 31);
+      const outside = b < UP.ymd(year, 1, 1) || a > UP.ymd(year, 12, 31);
       const meta = [TYPE_LABEL[f.type]];
       if (f.type !== 'sperre') meta.push(outside ? `nicht in ${year}` : plural(cost / 2, 'Arbeitstag', 'Arbeitstage'));
       return `
         <li class="fixed-item">
-          <i class="stripe t-${f.type}" aria-hidden="true"></i>
+          <i class="dot t-${f.type}" aria-hidden="true"></i>
           <div class="fixed-main">
             <strong>${UP.fmtRange(a, b)}</strong>
             <span>${f.label ? `${esc(f.label)} · ` : ''}${meta.join(' · ')}</span>
@@ -213,101 +220,82 @@
   const stateName = (code) => (UP.STATES.find((s) => s.code === code) || {}).name || code;
 
   function renderAll() {
-    $('#brandYear').textContent = state.settings.year;
-    document.title = `Urlaubsplaner ${state.settings.year}`;
+    const s = state.settings;
+    $('#appContext').textContent = `${s.year} · ${stateName(s.state)}`;
+    document.title = `Urlaubsplaner ${s.year}`;
     renderGleitCalc();
     renderFixedList();
-    renderOverview();
-    renderScenarios();
+    renderComparison();
     renderPlan();
-    renderOpportunities();
-    renderHolidays();
   }
 
-  function renderOverview() {
-    const { settings: s, pools, budget } = state.result;
-    const gleitDays = pools.gleit / 2;
-    const fixedDays = budget.fixedCost / 2;
-    const total = budget.total / 2;
-    $('#overview').innerHTML = `
-      <div class="tile">
-        <span class="tile-label"><i class="sw sw-urlaub"></i>Urlaub</span>
-        <span class="tile-value">${fmt(s.urlaubDays)} <small>Tage</small></span>
-        <span class="tile-sub">Jahresanspruch</span>
-      </div>
-      <div class="tile">
-        <span class="tile-label"><i class="sw sw-eza"></i>EZA</span>
-        <span class="tile-value">${fmt(s.ezaDays)} <small>Tage</small></span>
-        <span class="tile-sub">Extrazeitausgleich, separat verbucht</span>
-      </div>
-      <div class="tile">
-        <span class="tile-label"><i class="sw sw-gleit"></i>Gleitzeit</span>
-        <span class="tile-value">${fmt(gleitDays)} <small>Tage</small></span>
-        <span class="tile-sub">aus ${fmt(s.overtimeHours)} h Überstunden</span>
-      </div>
-      <div class="tile">
-        <span class="tile-label">Planbar gesamt</span>
-        <span class="tile-value">${fmt(budget.free / 2)} <small>von ${fmt(total)} Tagen</small></span>
-        <span class="tile-sub">${fixedDays ? `${fmt(fixedDays)} fest verplant` : 'nichts fest verplant'}${s.reserveDays ? ` · ${fmt(s.reserveDays)} Reserve` : ''}</span>
-      </div>`;
-  }
+  /* ---------- Szenario-Vergleich ---------- */
 
-  function dominantType(used) {
-    return ['urlaub', 'eza', 'gleit'].reduce((best, t) => (used[t] > used[best] ? t : best), 'urlaub');
-  }
-
-  function miniTimeline(plan) {
-    const cal = state.result.calendar;
-    const len = cal.lastIndex - cal.firstIndex + 1;
-    return plan.stats.blocks.map((b) => {
-      const s = Math.max(b.startIndex, cal.firstIndex) - cal.firstIndex;
-      const e = Math.min(b.endIndex, cal.lastIndex) - cal.firstIndex + 1;
-      return `<span class="t-${dominantType(b.used)}" style="left:${(s / len) * 100}%;width:${((e - s) / len) * 100}%"></span>`;
-    }).join('');
-  }
-
-  function renderScenarios() {
-    $('#scenarios').innerHTML = state.result.plans.map((p) => {
+  function renderComparison() {
+    const plans = state.result.plans;
+    const bestFree = Math.max(...plans.map((p) => p.stats.totalFree));
+    const rows = plans.map((p) => {
       const st = p.stats;
       const sel = p.scenario.id === state.active;
       return `
-        <button type="button" class="scenario-tab" role="tab" id="tab-${p.scenario.id}" aria-selected="${sel}" aria-controls="plan" data-scenario="${p.scenario.id}">
-          <span class="st-name">${esc(p.scenario.name)}</span>
-          <span class="st-big">${st.totalFree}<small>Tage frei</small></span>
-          <span class="st-sub">für ${plural(st.totalBooked, 'Tag', 'Tage')} · Faktor ${factor(st.efficiency)} · ${plural(st.blocks.length, 'Block', 'Blöcke')}</span>
-          <span class="mini" aria-hidden="true">${miniTimeline(p)}</span>
-          ${p.modified ? '<span class="st-badge">angepasst</span>' : ''}
-        </button>`;
+        <tr role="radio" tabindex="${sel ? 0 : -1}" aria-selected="${sel}" aria-checked="${sel}" data-scenario="${p.scenario.id}">
+          <td><span class="scn"><span class="radio" aria-hidden="true"></span><span class="name">${esc(p.scenario.name)}${p.modified ? '<span class="tag">angepasst</span>' : ''}</span></span></td>
+          <td class="num${st.totalFree === bestFree ? ' best' : ''}">${st.totalFree}</td>
+          <td class="num opt-col">${fmt(st.totalBooked)}</td>
+          <td class="num">${factor(st.efficiency)}</td>
+          <td class="num opt-col">${st.blocks.length}</td>
+          <td class="num opt-col">${st.longest}</td>
+        </tr>`;
     }).join('');
+    $('#scenarios').innerHTML = `
+      <table class="cmp">
+        <thead><tr>
+          <th>Szenario</th>
+          <th class="num">Tage frei am Stück</th>
+          <th class="num opt-col">Eingesetzt</th>
+          <th class="num">Faktor</th>
+          <th class="num opt-col">Blöcke</th>
+          <th class="num opt-col">Längster Block</th>
+        </tr></thead>
+        <tbody role="radiogroup" aria-label="Szenario wählen">${rows}</tbody>
+      </table>`;
   }
 
-  function meter(type, plan) {
+  /* ---------- Gewähltes Szenario ---------- */
+
+  function poolsTable(plan) {
     const st = plan.stats;
-    const avail = st.available[type];
-    const used = st.used[type];
-    const rest = st.remaining[type];
-    const over = rest < 0;
-    const pct = avail > 0 ? Math.min(100, (used / avail) * 100) : (used > 0 ? 100 : 0);
-    let sub;
-    if (type === 'gleit') {
-      sub = `${fmt(st.gleitHoursUsed)} h genutzt · ${fmt(Math.max(0, st.gleitHoursLeft))} h verbleiben auf dem Konto`;
-      if (over) sub = `${fmt(-rest)} Tag(e) mehr verplant als Überstunden vorhanden`;
-    } else {
-      sub = over ? `${fmt(-rest)} Tag(e) zu viel verplant` : `Rest ${plural(rest, 'Tag', 'Tage')}`;
-    }
+    const s = state.settings;
+    const rows = POOL_TYPES.map((t) => {
+      const avail = st.available[t];
+      const used = st.used[t];
+      const rest = st.remaining[t];
+      const over = rest < 0;
+      const pct = avail > 0 ? Math.min(100, (used / avail) * 100) : (used > 0 ? 100 : 0);
+      const sub = t === 'gleit' ? `<span class="pool-sub">aus ${fmt(s.overtimeHours)} h, ${fmt(s.hoursPerDay, 2)} h = 1 Tag</span>`
+        : t === 'eza' ? '<span class="pool-sub">Extrazeitausgleich</span>' : '<span class="pool-sub">Jahresanspruch</span>';
+      const restText = t === 'gleit'
+        ? `${fmt(rest)}<span class="pool-sub">Konto ${fmt(Math.max(0, st.gleitHoursLeft))} h</span>`
+        : fmt(rest);
+      return `
+        <tr>
+          <td><span class="pool-name"><i class="sw sw-${t}"></i>${UP.POOL_LABEL[t]}</span>${sub}</td>
+          <td class="num">${fmt(avail)}</td>
+          <td class="num">${fmt(used)}<span class="meter t-${t}${over ? ' over' : ''}" aria-hidden="true"><i style="width:${pct}%"></i></span></td>
+          <td class="num${over ? ' over' : ''}">${restText}</td>
+        </tr>`;
+    }).join('');
     return `
-      <div class="meter">
-        <div class="meter-head">
-          <strong><i class="sw sw-${type}"></i>${UP.POOL_LABEL[type]}</strong>
-          <span>${fmt(used)} / ${fmt(avail)} Tage</span>
-        </div>
-        <div class="bar t-${type}${over ? ' over' : ''}" role="img" aria-label="${UP.POOL_LABEL[type]}: ${fmt(used)} von ${fmt(avail)} Tagen verplant"><i style="width:${pct}%"></i></div>
-        <span class="meter-sub${over ? ' over' : ''}">${sub}</span>
+      <div class="table-wrap">
+        <table class="pools">
+          <thead><tr><th>Kontingent in Tagen</th><th class="num">Verfügbar</th><th class="num">Verplant</th><th class="num">Rest</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
       </div>`;
   }
 
   function dayTitle(d, a) {
-    const parts = [`${UP.WEEKDAYS_LONG[d.dow]}, ${UP.fmtDate(d.t)}`];
+    const parts = [`${UP.WEEKDAYS_LONG[d.dow]}, ${UP.fmtDate(d.t)} (KW ${UP.isoWeek(d.t)})`];
     if (d.holiday) parts.push(d.holiday);
     if (d.special === 'half') parts.push('halber Arbeitstag');
     if (d.special === 'free') parts.push('arbeitsfrei');
@@ -317,33 +305,27 @@
     return parts.join(' · ');
   }
 
-  function renderMonths(plan) {
+  function renderCalendar(plan) {
     const cal = state.result.calendar;
     const { year } = state.settings;
     const inBlock = new Set();
     for (const b of plan.stats.blocks) for (let i = b.startIndex; i <= b.endIndex; i++) inBlock.add(i);
-    const head = `<span></span>${WD_ORDER.map((d) => `<span class="wd${d === 0 ? ' sun' : ''}">${UP.WEEKDAYS_SHORT[d]}</span>`).join('')}`;
-    let html = '';
+    const head = WD_ORDER.map((d) => `<span class="wd">${UP.WEEKDAYS_SHORT[d]}</span>`).join('');
+    let months = '';
     for (let m = 1; m <= 12; m++) {
       const first = UP.ymd(year, m, 1);
       const nDays = new Date(Date.UTC(year, m, 0)).getUTCDate();
       const lead = (UP.dow(first) + 6) % 7;
       let booked = 0;
-      let cells = '';
-      let col = 0;
-      const pushKw = (t) => { cells += `<span class="kw" title="Kalenderwoche">${UP.isoWeek(t)}</span>`; };
-      pushKw(first);
-      for (let k = 0; k < lead; k++) { cells += '<span class="day out"></span>'; col++; }
+      let cells = '<span class="day out"></span>'.repeat(lead);
       for (let dd = 1; dd <= nDays; dd++) {
         const t = UP.ymd(year, m, dd);
-        if (col === 7) { pushKw(t); col = 0; }
         const i = UP.indexOf(cal, t);
         const d = cal.days[i];
         const a = plan.assign.get(i);
         if (a) booked += a.cost / 2;
         const cls = ['day'];
         if (!d.workday) cls.push('we');
-        if (d.dow === 0) cls.push('sun');
         if (d.holiday) cls.push('hol');
         if (d.special === 'half') cls.push('half');
         if (d.special === 'free') cls.push('cfree');
@@ -357,24 +339,36 @@
         cells += editable
           ? `<button type="button" class="${cls.join(' ')}" data-i="${i}" title="${title}" aria-label="${title}">${dd}</button>`
           : `<span class="${cls.join(' ')}" title="${title}">${dd}</span>`;
-        col++;
       }
-      html += `
+      months += `
         <div class="month">
           <h3>${UP.MONTHS[m - 1]}${booked ? `<small>${plural(booked, 'Tag', 'Tage')}</small>` : ''}</h3>
           <div class="mgrid">${head}${cells}</div>
         </div>`;
     }
-    return html;
+    return `
+      <div class="panel">
+        <div class="legend" aria-label="Legende">
+          <span><i class="day t-urlaub">1</i>Urlaub</span>
+          <span><i class="day t-eza">1</i>EZA</span>
+          <span><i class="day t-gleit">1</i>Gleitzeit</span>
+          <span><i class="day hol">1</i>Feiertag</span>
+          <span><i class="day inblock">1</i>frei im Block</span>
+          <span><i class="day fixed">1</i>fester Termin</span>
+          <span><i class="day blocked">1</i>Sperrzeit</span>
+        </div>
+        <div class="months">${months}</div>
+        <p class="hint">Klick auf einen Arbeitstag wechselt zwischen Urlaub, EZA, Gleitzeit und Arbeitstag. Die Zahlen rechnen sofort mit.</p>
+      </div>`;
   }
 
   function reasonOf(b) {
     const parts = [];
-    if (b.labels.length) parts.push(`<span class="tag">Fest</span>${b.labels.map(esc).join(', ')}`);
-    else if (b.fixed) parts.push('<span class="tag">Fest</span>');
+    if (b.labels.length) parts.push(`<span class="label-fixed">Fest</span>${b.labels.map(esc).join(', ')}`);
+    else if (b.fixed) parts.push('<span class="label-fixed">Fest</span>');
     const names = [...new Set(b.holidays.map((h) => h.name))];
     if (names.length) parts.push(`<span class="hl">${names.map(esc).join(', ')}</span>`);
-    if (b.manual) parts.push('<span class="tag">Manuell</span>');
+    if (b.manual) parts.push('<span class="label-fixed">Manuell</span>');
     if (!parts.length) parts.push(b.booked <= 2 ? 'Verlängertes Wochenende' : 'Urlaub');
     return parts.join(' ');
   }
@@ -382,24 +376,101 @@
   function renderBlocks(plan) {
     const blocks = plan.stats.blocks;
     if (!blocks.length) return '<p class="empty">Keine Urlaubsblöcke geplant. Prüfe die Kontingente in der linken Spalte.</p>';
+    const cell = (v) => (v ? fmt(v) : '<span class="muted">–</span>');
     const rows = blocks.map((b) => `
       <tr>
-        <td class="date">${UP.fmtRange(b.start, b.end)}</td>
-        <td class="num"><span class="free-big">${b.len}</span></td>
-        <td><div class="chips">${['urlaub', 'eza', 'gleit'].filter((t) => b.used[t]).map((t) => `<span class="chip t-${t}">${TYPE_CODE[t]} ${fmt(b.used[t])}</span>`).join('')}</div></td>
-        <td><div class="ranges">${b.ranges.map((r) => `<span class="t-${r.type}"><b>${UP.POOL_LABEL[r.type]}</b> ${UP.fmtRange(r.from, r.to)}</span>`).join('')}</div></td>
-        <td class="num">${factor(b.ratio)}×</td>
+        <td class="nowrap">${UP.fmtRange(b.start, b.end)}</td>
+        <td class="num"><strong>${b.len}</strong></td>
+        <td class="num">${cell(b.used.urlaub)}</td>
+        <td class="num">${cell(b.used.eza)}</td>
+        <td class="num">${cell(b.used.gleit)}</td>
+        <td class="num">${factor(b.ratio)}</td>
+        <td><div class="ranges">${b.ranges.map((r) => `<span><i class="sw sw-${r.type}" aria-hidden="true"></i>${UP.POOL_LABEL[r.type]} ${UP.fmtRange(r.from, r.to)}</span>`).join('')}</div></td>
         <td class="reason">${reasonOf(b)}</td>
       </tr>`).join('');
+    const st = plan.stats;
     return `
+      <p class="panel-intro">Faktor = freie Tage am Stück je eingesetztem Tag. „Zu beantragen“ zeigt die Zeiträume je Kontingent für den Antrag.</p>
       <div class="table-wrap">
-        <table class="blocks">
+        <table>
           <thead><tr>
-            <th>Frei am Stück</th><th class="num">Tage</th><th>Einsatz</th><th>Zu beantragen</th><th class="num">Faktor</th><th>Anlass</th>
+            <th>Frei am Stück</th><th class="num">Tage</th><th class="num">Urlaub</th><th class="num">EZA</th><th class="num">Gleitzeit</th><th class="num">Faktor</th><th>Zu beantragen</th><th>Anlass</th>
+          </tr></thead>
+          <tbody>${rows}
+            <tr class="group-row">
+              <td><strong>Summe</strong></td>
+              <td class="num"><strong>${st.totalFree}</strong></td>
+              <td class="num"><strong>${fmt(st.used.urlaub)}</strong></td>
+              <td class="num"><strong>${fmt(st.used.eza)}</strong></td>
+              <td class="num"><strong>${fmt(st.used.gleit)}</strong></td>
+              <td class="num"><strong>${factor(st.efficiency)}</strong></td>
+              <td></td><td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  function renderOpportunities() {
+    const { opportunities, settings } = state.result;
+    if (!opportunities.length) return '<p class="empty">Keine lohnenden Brückentage gefunden.</p>';
+    const rows = opportunities.map((o) => {
+      const names = [...new Set(o.holidays.map((h) => h.name))].join(' & ');
+      const dates = o.holidays.map((h) => UP.fmtShort(h.t)).join(', ');
+      return o.options.map((x, k) => `
+        <tr class="${k === 0 ? 'group-row' : ''}">
+          <td>${k === 0 ? `<span class="hol-name">${esc(names)}</span>` : ''}</td>
+          <td class="nowrap">${k === 0 ? dates : ''}</td>
+          <td class="num">${plural(x.days, 'Tag', 'Tage')}</td>
+          <td class="nowrap">${UP.fmtRange(x.from, x.to)}</td>
+          <td class="num">${x.free} Tage</td>
+          <td class="nowrap">${UP.fmtRange(x.freeFrom, x.freeTo)}</td>
+          <td class="num factor">${factor(x.ratio)}</td>
+        </tr>`).join('');
+    }).join('');
+    return `
+      <p class="panel-intro">Lohnende Kombinationen rund um die Feiertage in ${esc(stateName(settings.state))}, unabhängig vom gewählten Szenario.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Feiertag</th><th>Datum</th><th class="num">Einsatz</th><th>Frei nehmen</th><th class="num">Frei am Stück</th><th>Zeitraum</th><th class="num">Faktor</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>`;
+  }
+
+  function renderHolidays() {
+    const { holidays, settings } = state.result;
+    const workdays = settings.workdays;
+    const effective = holidays.filter((h) => workdays.includes(h.weekday)).length;
+    const rows = holidays.map((h) => {
+      const onFree = !workdays.includes(h.weekday);
+      return `
+        <tr class="${onFree ? 'weekend' : ''}">
+          <td class="nowrap">${UP.fmtDate(h.date)}</td>
+          <td>${UP.WEEKDAYS_LONG[h.weekday]}</td>
+          <td>${esc(h.name)}${h.regional ? ' (regional)' : ''}</td>
+          <td>${onFree ? 'fällt auf einen freien Tag' : 'Arbeitstag frei'}</td>
+        </tr>`;
+    }).join('');
+    return `
+      <p class="panel-intro">${esc(stateName(settings.state))} ${settings.year}: ${holidays.length} Feiertage, davon ${effective} an Arbeitstagen.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Datum</th><th>Wochentag</th><th>Feiertag</th><th>Wirkung</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function renderView(plan) {
+    switch (state.view) {
+      case 'bloecke': return renderBlocks(plan);
+      case 'brueckentage': return renderOpportunities();
+      case 'feiertage': return renderHolidays();
+      default: return renderCalendar(plan);
+    }
   }
 
   function renderPlan() {
@@ -413,91 +484,35 @@
     if (unplanned > 0.01 && !st.warnings.length) {
       notes.push(`<p class="notice">${plural(unplanned, 'Tag ist', 'Tage sind')} noch nicht verplant${state.settings.reserveDays ? ' (inkl. Reserve)' : ''}.</p>`);
     }
-    $('#plan').setAttribute('aria-labelledby', `tab-${plan.scenario.id}`);
+    const counts = {
+      bloecke: st.blocks.length,
+      brueckentage: state.result.opportunities.length,
+      feiertage: state.result.holidays.length,
+    };
+    const tabs = VIEWS.map((v) => `
+      <button type="button" class="tab" role="tab" id="view-${v.id}" data-view="${v.id}" aria-selected="${v.id === state.view}" tabindex="${v.id === state.view ? 0 : -1}">
+        ${v.label}${counts[v.id] !== undefined ? `<span class="count">${counts[v.id]}</span>` : ''}
+      </button>`).join('');
+
     $('#plan').innerHTML = `
       <div class="plan-head">
         <div class="plan-title">
-          <h2>${esc(plan.scenario.name)}</h2>
+          <h2>${esc(plan.scenario.name)}${plan.modified ? '<span class="tag">angepasst</span>' : ''}</h2>
           <p>${esc(plan.scenario.description)}</p>
         </div>
         <div class="plan-actions">
-          ${plan.modified ? '<button type="button" class="btn btn-secondary" data-action="reset-plan">Änderungen verwerfen</button>' : ''}
+          ${plan.modified ? '<button type="button" class="btn" data-action="reset-plan">Änderungen verwerfen</button>' : ''}
+          <button type="button" class="btn" data-action="pdf-all">Alle Szenarien als PDF</button>
           <button type="button" class="btn btn-primary" data-action="pdf">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2v8m0 0 3-3m-3 3L5 7M3 12v2h10v-2"/></svg>
             PDF exportieren
           </button>
-          <button type="button" class="btn btn-secondary" data-action="pdf-all">Alle Szenarien als PDF</button>
         </div>
       </div>
       <div class="notices">${notes.join('')}</div>
-      <div class="meters">
-        ${meter('urlaub', plan)}
-        ${meter('eza', plan)}
-        ${meter('gleit', plan)}
-        <div class="meter">
-          <div class="meter-head"><strong>Ergebnis</strong><span>Faktor ${factor(st.efficiency)}</span></div>
-          <span class="tile-value">${st.totalFree} <small>Tage frei am Stück</small></span>
-          <span class="meter-sub">längster Block ${plural(st.longest, 'Tag', 'Tage')} · ${plural(st.blocks.length, 'Block', 'Blöcke')}</span>
-        </div>
-      </div>
-      <div class="legend" aria-label="Legende">
-        <span><i class="day t-urlaub">8</i>Urlaub</span>
-        <span><i class="day t-eza">8</i>EZA</span>
-        <span><i class="day t-gleit">8</i>Gleitzeit</span>
-        <span><i class="day hol">8</i>Feiertag</span>
-        <span><i class="day we">8</i>Wochenende</span>
-        <span><i class="day inblock">8</i>frei im Block</span>
-        <span><i class="day fixed">8</i>fester Termin</span>
-        <span><i class="day blocked">8</i>Sperrzeit</span>
-      </div>
-      <div class="months">${renderMonths(plan)}</div>
-      <p class="hint">Tipp: Klick auf einen Arbeitstag wechselt zwischen Urlaub, EZA, Gleitzeit und Arbeitstag. So kannst du den Vorschlag anpassen, die Zahlen rechnen sofort mit.</p>
-      <div class="section-head">
-        <h3>Urlaubsblöcke</h3>
-        <span>Faktor = freie Tage je eingesetztem Tag</span>
-      </div>
-      ${renderBlocks(plan)}`;
-  }
-
-  function renderOpportunities() {
-    const { opportunities, settings } = state.result;
-    const items = opportunities.map((o) => {
-      const names = [...new Set(o.holidays.map((h) => h.name))].join(' & ');
-      const dates = o.holidays.map((h) => UP.fmtShort(h.t)).join(', ');
-      const opts = o.options.map((x) => `
-        <span class="opt">
-          <span><b>${plural(x.days, 'Tag', 'Tage')}</b> einsetzen → <b>${x.free} frei</b> <span class="factor">${factor(x.ratio)}×</span></span>
-          <small>${UP.fmtRange(x.from, x.to)}</small>
-        </span>`).join('');
-      return `
-        <li class="opp">
-          <div class="opp-head"><strong>${esc(names)}</strong><span>${dates}</span></div>
-          <div class="opp-opts">${opts}</div>
-        </li>`;
-    }).join('');
-    $('#opportunities').innerHTML = `
-      <h3>Beste Brückentage ${settings.year}</h3>
-      <p>Lohnende Kombinationen rund um Feiertage in ${esc(stateName(settings.state))}, unabhängig vom Szenario.</p>
-      ${items ? `<ul class="opps">${items}</ul>` : '<p class="empty">Keine lohnenden Brückentage gefunden.</p>'}`;
-  }
-
-  function renderHolidays() {
-    const { holidays, settings } = state.result;
-    const workdays = settings.workdays;
-    const rows = holidays.map((h) => {
-      const onFree = !workdays.includes(h.weekday);
-      return `
-        <tr class="${onFree ? 'weekend' : ''}">
-          <td class="date">${UP.fmtDate(h.date).slice(0, 6)}</td>
-          <td class="wdname">${UP.WEEKDAYS_SHORT[h.weekday]}</td>
-          <td>${esc(h.name)}${h.regional ? ' <span class="note">(regional)</span>' : ''}${onFree ? '<span class="note block">fällt auf einen freien Tag</span>' : ''}</td>
-        </tr>`;
-    }).join('');
-    const effective = holidays.filter((h) => workdays.includes(h.weekday)).length;
-    $('#holidays').innerHTML = `
-      <h3>Feiertage ${settings.year}</h3>
-      <p>${esc(stateName(settings.state))}: ${holidays.length} Feiertage, davon ${effective} an Arbeitstagen.</p>
-      <div class="table-wrap"><table class="hol-table"><tbody>${rows}</tbody></table></div>`;
+      ${poolsTable(plan)}
+      <div class="tabs" role="tablist" aria-label="Ansicht">${tabs}</div>
+      <div class="view" role="tabpanel" aria-labelledby="view-${state.view}">${renderView(plan)}</div>`;
   }
 
   /* ---------- Interaktion ---------- */
@@ -517,7 +532,7 @@
     if (Object.keys(ov).length) state.overrides[id] = ov;
     else delete state.overrides[id];
     refreshPlan(plan);
-    renderScenarios();
+    renderComparison();
     renderPlan();
     const btn = $(`#plan button.day[data-i="${i}"]`);
     if (btn) btn.focus();
@@ -542,6 +557,21 @@
       n.textContent = 'Das PDF konnte nicht erstellt werden. Bitte lade die Seite neu und versuche es noch einmal.';
       $('#plan .notices').appendChild(n);
     }
+  }
+
+  function selectScenario(id, focus) {
+    state.active = id;
+    renderComparison();
+    renderPlan();
+    if (focus) $(`#scenarios tr[data-scenario="${id}"]`).focus();
+    save();
+  }
+
+  function selectView(id, focus) {
+    state.view = id;
+    renderPlan();
+    if (focus) $(`#view-${id}`).focus();
+    save();
   }
 
   function bindEvents() {
@@ -597,28 +627,26 @@
       recompute();
     });
 
-    $('#scenarios').addEventListener('click', (e) => {
-      const tab = e.target.closest('[data-scenario]');
-      if (!tab) return;
-      state.active = tab.dataset.scenario;
-      renderScenarios();
-      renderPlan();
-      save();
+    const scenarios = $('#scenarios');
+    scenarios.addEventListener('click', (e) => {
+      const row = e.target.closest('[data-scenario]');
+      if (row) selectScenario(row.dataset.scenario, true);
     });
-    $('#scenarios').addEventListener('keydown', (e) => {
-      if (!['ArrowRight', 'ArrowLeft'].includes(e.key)) return;
+    scenarios.addEventListener('keydown', (e) => {
       const ids = state.result.plans.map((p) => p.scenario.id);
       const idx = ids.indexOf(state.active);
-      state.active = ids[(idx + (e.key === 'ArrowRight' ? 1 : ids.length - 1)) % ids.length];
-      renderScenarios();
-      renderPlan();
-      $(`#tab-${state.active}`).focus();
-      save();
+      if (['ArrowDown', 'ArrowRight'].includes(e.key)) selectScenario(ids[(idx + 1) % ids.length], true);
+      else if (['ArrowUp', 'ArrowLeft'].includes(e.key)) selectScenario(ids[(idx + ids.length - 1) % ids.length], true);
+      else return;
+      e.preventDefault();
     });
 
-    $('#plan').addEventListener('click', (e) => {
+    const plan = $('#plan');
+    plan.addEventListener('click', (e) => {
       const day = e.target.closest('button.day[data-i]');
       if (day) { toggleDay(+day.dataset.i); return; }
+      const tab = e.target.closest('[data-view]');
+      if (tab) { selectView(tab.dataset.view, true); return; }
       const act = e.target.closest('[data-action]');
       if (!act) return;
       if (act.dataset.action === 'pdf') exportPdf(false);
@@ -626,10 +654,17 @@
       if (act.dataset.action === 'reset-plan') {
         delete state.overrides[state.active];
         refreshPlan(activePlan());
-        renderScenarios();
+        renderComparison();
         renderPlan();
         save();
       }
+    });
+    plan.addEventListener('keydown', (e) => {
+      if (!e.target.closest('[role="tab"]') || !['ArrowRight', 'ArrowLeft'].includes(e.key)) return;
+      const ids = VIEWS.map((v) => v.id);
+      const idx = ids.indexOf(state.view);
+      selectView(ids[(idx + (e.key === 'ArrowRight' ? 1 : ids.length - 1)) % ids.length], true);
+      e.preventDefault();
     });
   }
 
