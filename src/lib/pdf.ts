@@ -3,13 +3,14 @@ import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import type { YearCalendar } from './calendar';
 import { daysInMonth, formatDate, formatNumber, formatRange, MONTHS, todayIso, WEEKDAYS_SHORT } from './dates';
-import { stateName } from './holidays';
+import { stateName, type StateCode } from './holidays';
 import type { Budget, Plan, PlanSummary } from './plan';
+import type { SchoolHoliday } from './schoolHolidays';
 import { LEAVE_LABEL, LEAVE_SHORT, LEAVE_TYPES, type LeaveType, type Settings } from './types';
 
 type RGB = [number, number, number];
 
-const COLOR: Record<LeaveType | 'holiday' | 'weekend' | 'free' | 'inBreak' | 'blocked' | 'past', RGB> = {
+const COLOR: Record<LeaveType | 'holiday' | 'weekend' | 'free' | 'inBreak' | 'blocked' | 'past' | 'school' | 'schoolAll', RGB> = {
   vacation: [37, 99, 235],
   eza: [124, 58, 237],
   overtime: [217, 119, 6],
@@ -19,6 +20,8 @@ const COLOR: Record<LeaveType | 'holiday' | 'weekend' | 'free' | 'inBreak' | 'bl
   inBreak: [219, 234, 254],
   blocked: [243, 244, 246],
   past: [249, 250, 251],
+  school: [101, 163, 13],
+  schoolAll: [8, 145, 178],
 };
 const INK: RGB = [17, 24, 39];
 const MUTED: RGB = [107, 114, 128];
@@ -31,6 +34,8 @@ export interface PdfInput {
   summary: PlanSummary;
   budget: Budget;
   scenarioName: string;
+  /** Bundesland der angezeigten Schulferien */
+  schoolState?: StateCode;
 }
 
 export function createPdf(input: PdfInput): jsPDF {
@@ -100,7 +105,7 @@ export function createPdf(input: PdfInput): jsPDF {
     doc.text(b.sub, x + 4, y + 14.5);
   });
 
-  drawYearGrid(doc, cal, plan, summary, margin, 50, pageW - 2 * margin);
+  drawYearGrid(doc, cal, plan, summary, margin, 50, pageW - 2 * margin, input.schoolState);
 
   // Auszeiten
   doc.addPage();
@@ -118,7 +123,7 @@ export function createPdf(input: PdfInput): jsPDF {
     String(b.byType.eza || ''),
     String(b.byType.overtime || ''),
     formatNumber(b.leaveDays ? b.length / b.leaveDays : 0, 2) + '×',
-    [...b.labels, ...b.holidays].join(', '),
+    [...b.labels, ...b.holidays, ...b.school].join(', '),
   ]);
   autoTable(doc, {
     startY: 19,
@@ -155,7 +160,12 @@ export function createPdf(input: PdfInput): jsPDF {
     },
   });
 
+  const pageH = doc.internal.pageSize.getHeight();
   let y = lastY(doc) + 8;
+  if (y > pageH - 60) {
+    doc.addPage();
+    y = 15;
+  }
   const half = (pageW - 2 * margin - 8) / 2;
 
   // Kontenübersicht (links) und Feiertage (rechts)
@@ -258,6 +268,7 @@ function drawYearGrid(
   x0: number,
   y0: number,
   width: number,
+  schoolState?: StateCode,
 ) {
   const labelW = 20;
   const cellW = (width - labelW) / 31;
@@ -323,6 +334,14 @@ function drawYearGrid(
         doc.setLineWidth(0.5);
         doc.rect(x + 0.35, y + 0.35, cellW - 0.7, cellH - 0.7, 'S');
       }
+      if (day.school) {
+        doc.setFillColor(...COLOR.school);
+        doc.rect(x + 0.8, y + cellH - 1.5, cellW - 1.6, 0.9, 'F');
+      }
+      if (day.schoolAll) {
+        doc.setFillColor(...COLOR.schoolAll);
+        doc.rect(x + 0.8, y + 0.6, cellW - 1.6, 0.7, 'F');
+      }
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(5.5);
       doc.setTextColor(...text);
@@ -337,7 +356,7 @@ function drawYearGrid(
 
   // Legende
   const ly = y0 + headH + 12 * cellH + 6;
-  const items: { fill: RGB; label: string; mark?: string; text?: RGB; frame?: boolean }[] = [
+  const items: { fill: RGB; label: string; mark?: string; text?: RGB; frame?: boolean; bar?: 'school' | 'schoolAll' }[] = [
     { fill: COLOR.vacation, label: 'Urlaub', mark: 'U', text: [255, 255, 255] },
     { fill: COLOR.eza, label: 'EZA (Extrazeitausgleich)', mark: 'E', text: [255, 255, 255] },
     { fill: COLOR.overtime, label: 'Gleitzeit (Überstundenabbau)', mark: 'G', text: [255, 255, 255] },
@@ -348,13 +367,30 @@ function drawYearGrid(
     { fill: [255, 255, 255], label: 'Fester Termin', frame: true },
     { fill: COLOR.blocked, label: 'Urlaubssperre', mark: 'S', text: MUTED },
   ];
+  if (cal.schoolHolidays.length > 0) {
+    items.push({ fill: [255, 255, 255], label: `Schulferien${schoolState ? ` ${stateName(schoolState)}` : ''}`, bar: 'school' });
+  }
+  if (cal.schoolEnvelope.length > 0) items.push({ fill: [255, 255, 255], label: 'Ferien bundesweit', bar: 'schoolAll' });
   let lx = x0;
+  let ly2 = ly;
   doc.setFontSize(7.5);
   for (const it of items) {
+    if (lx + 12 + doc.getTextWidth(it.label) > x0 + width) {
+      lx = x0;
+      ly2 += 6;
+    }
+    const ly = ly2;
     doc.setFillColor(...it.fill);
     doc.setDrawColor(...(it.frame ? INK : LINE));
     doc.setLineWidth(it.frame ? 0.5 : 0.15);
     doc.rect(lx, ly - 3, 4.5, 4.5, 'FD');
+    if (it.bar === 'school') {
+      doc.setFillColor(...COLOR.school);
+      doc.rect(lx + 0.5, ly + 0.4, 3.5, 0.9, 'F');
+    } else if (it.bar === 'schoolAll') {
+      doc.setFillColor(...COLOR.schoolAll);
+      doc.rect(lx + 0.5, ly - 2.6, 3.5, 0.9, 'F');
+    }
     if (it.mark) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.5);
@@ -366,6 +402,33 @@ function drawYearGrid(
     doc.setTextColor(...INK);
     doc.text(it.label, lx + 6, ly + 0.3);
     lx += 6 + doc.getTextWidth(it.label) + 6;
+  }
+
+  // Ferientermine als kompakte Zeilen unter der Legende
+  const inYear = (h: SchoolHoliday) => h.to >= `${cal.year}-01-01` && h.from <= `${cal.year}-12-31`;
+  const lines: string[] = [];
+  const school = cal.schoolHolidays.filter(inYear);
+  if (school.length > 0) {
+    lines.push(
+      `Schulferien ${cal.year}${schoolState ? ` (${stateName(schoolState)})` : ''}: ` +
+        school.map((h) => `${h.name} ${formatRange(h.from, h.to)}`).join('  ·  '),
+    );
+  }
+  const envelope = cal.schoolEnvelope.filter(inYear);
+  if (envelope.length > 0) {
+    lines.push(
+      'Ferien bundesweit (frühester Beginn – spätestes Ende): ' +
+        envelope.map((h) => `${h.name} ${formatRange(h.from, h.to)}`).join('  ·  '),
+    );
+  }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...MUTED);
+  let ty = ly2 + 6.5;
+  for (const line of lines) {
+    const wrapped = doc.splitTextToSize(line, width) as string[];
+    doc.text(wrapped, x0, ty);
+    ty += wrapped.length * 3 + 1;
   }
 }
 

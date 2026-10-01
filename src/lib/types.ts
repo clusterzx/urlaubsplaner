@@ -1,4 +1,5 @@
 import type { StateCode } from './holidays';
+import type { SchoolMode } from './schoolHolidays';
 
 /** Konten, aus denen ein freier Arbeitstag gebucht wird. */
 export type LeaveType = 'vacation' | 'eza' | 'overtime';
@@ -48,6 +49,12 @@ export interface Settings {
   /** Reihenfolge, in der die Konten bei automatischer Zuordnung belastet werden. */
   allocationOrder: LeaveType[];
   allocationMode: AllocationMode;
+  /** Umgang mit Schulferien bei der Planung. */
+  schoolMode: SchoolMode;
+  /** Bundesland, dessen Schulferien gelten ('same' = wie Arbeitsort). */
+  schoolState: StateCode | 'same';
+  /** Bundesweiten Ferienzeitraum (frühester Beginn – spätestes Ende) einblenden. */
+  schoolAll: boolean;
 }
 
 export type PeriodKind = 'fixed' | 'blocked' | 'free';

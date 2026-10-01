@@ -12,6 +12,15 @@ sich als PDF exportieren.
   Stunden pro Tag (Standard 7,6 h = 1 freier Tag).
 - **Gleitzeit:** Überstunden werden in ganze freie Tage umgerechnet (z. B. 45,6 h ÷ 7,6 h = 6 Tage);
   ein Rest unter einem Tag wird angezeigt.
+- **Schulferien** (2024–2030 mitgeliefert, spätere Jahre werden – sobald veröffentlicht – live von
+  der OpenHolidays API geladen):
+  - Ferien eines frei wählbaren Bundeslandes einblenden (Standard: wie Arbeitsort; z. B. Arbeit in
+    Bayern, Schule in Baden-Württemberg).
+  - Zusätzlich den **bundesweiten Ferienzeitraum** je Ferienart einblenden: frühester Beginn bis
+    spätestes Ende über alle 16 Länder (z. B. Sommerferien 28.06.–13.09.2027).
+  - Bei der Planung: *nur anzeigen*, *Urlaub bevorzugt in den Ferien* (z. B. für Eltern), *Urlaub nur
+    in den Ferien* oder *Ferien meiden* (leerer & günstiger). Bei „bevorzugt“/„nur“ liegt der
+    Sommerurlaub der Szenarien in den Sommerferien.
 - **Feste Zeiten & Wünsche:** feste Urlaube (optional mit festem Konto), Urlaubssperren und
   zusätzliche arbeitsfreie Tage (z. B. Betriebsruhe). Feste Urlaube werden in jedem Szenario genau so
   übernommen, in Sperren wird nie geplant.
@@ -60,7 +69,13 @@ npm install
 npm run dev        # Entwicklungsserver
 npm test           # Unit-Tests (Vitest)
 npm run build      # Typprüfung + Produktions-Build nach dist/
+npm run update-ferien            # Schulferien aktualisieren (aktuelles Jahr −1 bis +5)
+npm run update-ferien 2026 2032  # … oder für einen bestimmten Zeitraum
 ```
+
+Die Schulferien stammen von der [OpenHolidays API](https://www.openholidaysapi.org) und liegen in
+`src/data/school-holidays.json`. Berücksichtigt werden die landesweiten Termine der allgemeinbildenden
+Schulen; Sonderregeln (z. B. Nordseeinseln) und bewegliche Ferientage einzelner Schulen nicht.
 
 ## So rechnet der Optimierer
 
@@ -80,10 +95,12 @@ Urlaubskonto. Reihenfolge und Verfahren sind einstellbar.
 
 ```
 src/
-  lib/          Logik ohne UI (Feiertage, Kalender, Optimierer, Konten, PDF) + Tests
+  lib/          Logik ohne UI (Feiertage, Schulferien, Kalender, Optimierer, Konten, PDF) + Tests
+  data/         mitgelieferte Schulferien
   components/   React-Komponenten
   App.tsx       Zustand und Seitenaufbau
 docker/         nginx-Konfiguration für das Container-Image
+scripts/        Aktualisierung der Schulferien
 ```
 
 ## Hinweise

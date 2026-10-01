@@ -1,5 +1,5 @@
 // Brückentage-Finder: die lohnendsten Konstellationen rund um Feiertage.
-import { isBookable, type YearCalendar } from './calendar';
+import { isPlannable, type YearCalendar } from './calendar';
 import { isoOfIndex } from './dates';
 import type { Plan } from './plan';
 
@@ -15,6 +15,8 @@ export interface OpportunityOption {
   ratio: number;
   /** Feiertage/arbeitsfreie Tage in der Auszeit */
   holidays: string[];
+  /** Schulferien, die die Auszeit berührt */
+  school: string[];
 }
 
 export interface Opportunity {
@@ -43,7 +45,7 @@ export function findOpportunities(cal: YearCalendar, maxCost = 10, minRatio = 2)
   for (let i = 0; i < M; i++) {
     for (let j = i; j < M && j - i + 1 <= maxCost; j++) {
       const day = work[j];
-      if (!day.fixed && (!isBookable(day) || day.blocked)) break;
+      if (!isPlannable(day)) break;
       const start = pos(i - 1) + 1;
       const end = pos(j + 1) - 1;
       let anchor: number | null = null;
@@ -65,6 +67,7 @@ export function findOpportunities(cal: YearCalendar, maxCost = 10, minRatio = 2)
           length,
           ratio: length / cost,
           holidays: namesBetween(cal, start, end, isSpecial),
+          school: schoolBetween(cal, start, end),
         });
       }
     }
@@ -88,6 +91,15 @@ export function findOpportunities(cal: YearCalendar, maxCost = 10, minRatio = 2)
     result.push({ anchor, title: cal.labelAt(anchor) ?? '', options });
   }
   return result.sort((a, b) => a.anchor - b.anchor);
+}
+
+function schoolBetween(cal: YearCalendar, start: number, end: number): string[] {
+  const names: string[] = [];
+  for (let d = Math.max(0, start); d <= Math.min(cal.days.length - 1, end); d++) {
+    const name = cal.days[d].school;
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names;
 }
 
 function namesBetween(cal: YearCalendar, start: number, end: number, isSpecial: (d: number) => boolean): string[] {

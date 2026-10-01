@@ -44,7 +44,12 @@ export function BreakList({ summary }: Props) {
                     </span>
                   </td>
                   <td className="num">{formatNumber(b.leaveDays ? b.length / b.leaveDays : 0, 2)}×</td>
-                  <td className="muted">{[...b.labels, ...b.holidays].join(', ')}</td>
+                  <td className="muted">
+                    {[...b.labels, ...b.holidays].join(', ')}
+                    {b.school.map((s) => (
+                      <span key={s} className="tag tag-school">{s}</span>
+                    ))}
+                  </td>
                 </tr>
               ))}
             </tbody>

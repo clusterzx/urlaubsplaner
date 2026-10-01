@@ -41,6 +41,7 @@ export function Opportunities({ cal, opportunities, plan, onApply }: Props) {
                       <div className="opp-dates muted">
                         {formatRange(opt.startIso, opt.endIso)}
                         {opt.holidays.length > 1 && <> · inkl. {opt.holidays.filter((h) => h !== o.title).join(', ')}</>}
+                        {opt.school.length > 0 && <> · {opt.school.join(', ')}</>}
                       </div>
                       {inPlan ? (
                         <span className="in-plan-label">✓ im Plan</span>

@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { AccountOverview } from './components/AccountOverview';
 import { BreakList } from './components/BreakList';
 import { HolidayList } from './components/HolidayList';
@@ -14,6 +14,17 @@ import { findOpportunities, type OpportunityOption } from './lib/opportunities';
 import { SCENARIOS } from './lib/optimizer';
 import { applyOverrides, computeBudget, normalizeOrder, summarize } from './lib/plan';
 import { runScenarios } from './lib/scenarios';
+import {
+  bundledAllSchoolHolidays,
+  fetchAllSchoolHolidays,
+  isAllCovered,
+  isCovered,
+  mergeSchoolByState,
+  SCHOOL_SOURCE,
+  SCHOOL_UPDATED,
+  schoolEnvelope,
+  type SchoolByState,
+} from './lib/schoolHolidays';
 import { defaultSettings, sanitizePeriods, sanitizeSettings } from './lib/settings';
 import { usePersistentState } from './lib/storage';
 import type { LeaveType, Overrides, Settings } from './lib/types';
@@ -44,6 +55,8 @@ export function App() {
   const [selectedId, setSelectedId] = usePersistentState('urlaubsplaner.scenario', sanitizeScenario);
   const [overrideStore, setOverrideStore] = usePersistentState('urlaubsplaner.overrides', sanitizeOverrides);
   const [brush, setBrush] = useState<Brush>('cycle');
+  const [liveSchool, setLiveSchool] = useState<Record<number, SchoolByState | 'loading' | 'error'>>({});
+  const requestedSchool = useRef(new Set<number>());
   const [exporting, setExporting] = useState(false);
 
   const today = useMemo(() => todayIso(), []);
@@ -54,7 +67,48 @@ export function App() {
   const deferredPeriods = useDeferredValue(periods);
   const calculating = deferredSettings !== settings || deferredPeriods !== periods;
 
-  const cal = useMemo(() => buildCalendar(deferredSettings, deferredPeriods, today), [deferredSettings, deferredPeriods, today]);
+  // Schulferien: mitgelieferte Termine, fehlende Jahre live von der OpenHolidays API
+  // (eine Abfrage liefert alle Bundesländer).
+  const { state, year, schoolMode, schoolAll } = deferredSettings;
+  const schoolState = deferredSettings.schoolState === 'same' ? state : deferredSettings.schoolState;
+  const bundledSchool = useMemo(() => bundledAllSchoolHolidays(year), [year]);
+  const stateCovered = isCovered(bundledSchool[schoolState], year);
+  const needLive = (schoolMode !== 'off' && !stateCovered) || (schoolAll && !isAllCovered(bundledSchool, year));
+  const live = liveSchool[year];
+  useEffect(() => {
+    if (!needLive || requestedSchool.current.has(year)) return;
+    requestedSchool.current.add(year);
+    setLiveSchool((m) => ({ ...m, [year]: 'loading' }));
+    fetchAllSchoolHolidays(year).then(
+      (map) => setLiveSchool((m) => ({ ...m, [year]: map })),
+      () => setLiveSchool((m) => ({ ...m, [year]: 'error' })),
+    );
+  }, [needLive, year]);
+  const schoolByState = useMemo(
+    () => mergeSchoolByState(bundledSchool, typeof live === 'object' ? live : undefined),
+    [bundledSchool, live],
+  );
+  const schoolHolidays = useMemo(
+    () => (schoolMode === 'off' ? [] : schoolByState[schoolState]),
+    [schoolMode, schoolByState, schoolState],
+  );
+  const envelope = useMemo(() => (schoolAll ? schoolEnvelope(schoolByState, year) : []), [schoolAll, schoolByState, year]);
+  const schoolStatus = !needLive
+    ? schoolMode === 'off' && !schoolAll
+      ? undefined
+      : `Quelle: ${SCHOOL_SOURCE}, Stand ${SCHOOL_UPDATED.split('-').reverse().join('.')}`
+    : live === 'loading'
+      ? 'Ferientermine werden geladen …'
+      : live === 'error'
+        ? `Ferientermine für ${year} konnten nicht geladen werden – bei Bedarf als feste Zeit/Sperre eintragen.`
+        : (schoolMode === 'off' || isCovered(schoolHolidays, year)) && (!schoolAll || isAllCovered(schoolByState, year))
+          ? `Quelle: ${SCHOOL_SOURCE} (live geladen)`
+          : `Für ${year} sind noch nicht alle Ferientermine veröffentlicht.`;
+
+  const cal = useMemo(
+    () => buildCalendar(deferredSettings, deferredPeriods, today, schoolHolidays, envelope),
+    [deferredSettings, deferredPeriods, today, schoolHolidays, envelope],
+  );
   const budget = useMemo(() => computeBudget(deferredSettings), [deferredSettings]);
   const results = useMemo(() => runScenarios(cal, budget, deferredSettings), [cal, budget, deferredSettings]);
   const opportunities = useMemo(() => findOpportunities(cal), [cal]);
@@ -125,6 +179,7 @@ export function App() {
         summary,
         budget,
         scenarioName: selected.def.name + (overrides ? ' (angepasst)' : ''),
+        schoolState,
       });
     } catch (err) {
       console.error(err);
@@ -167,7 +222,13 @@ export function App() {
 
       <main className="layout">
         <aside className="sidebar">
-          <SettingsPanel settings={settings} budget={computeBudget(settings)} onChange={updateSettings} currentYear={currentYear} />
+          <SettingsPanel
+            settings={settings}
+            budget={computeBudget(settings)}
+            onChange={updateSettings}
+            currentYear={currentYear}
+            schoolStatus={schoolStatus}
+          />
           <PeriodsPanel periods={periods} cal={cal} onChange={setPeriods} />
         </aside>
 
@@ -179,7 +240,7 @@ export function App() {
             daysInYear={cal.days.length}
             onSelect={setSelectedId}
           />
-          <AccountOverview summary={summary} budget={budget} />
+          <AccountOverview summary={summary} budget={budget} showSchool={schoolHolidays.length > 0} />
           <YearCalendar
             cal={cal}
             plan={plan}
@@ -193,7 +254,7 @@ export function App() {
           />
           <BreakList summary={summary} />
           <Opportunities cal={cal} opportunities={opportunities} plan={plan} onApply={applyOpportunity} />
-          <HolidayList cal={cal} state={deferredSettings.state} />
+          <HolidayList cal={cal} state={deferredSettings.state} schoolState={schoolState} schoolStatus={schoolStatus} />
         </div>
       </main>
 

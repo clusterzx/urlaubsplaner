@@ -57,6 +57,8 @@ export interface Break {
   holidays: string[];
   /** Bezeichnungen fester Zeiten im Zeitraum */
   labels: string[];
+  /** Schulferien, die die Auszeit berührt */
+  school: string[];
 }
 
 function emptyCounts(): Record<LeaveType, number> {
@@ -83,10 +85,13 @@ export function computeBreaks(cal: YearCalendar, plan: Plan): Break[] {
     const byType = emptyCounts();
     const holidays: string[] = [];
     const labels: string[] = [];
+    const school: string[] = [];
     for (let d = s; d <= e; d++) {
       if (d >= 0 && d < n) {
         const t = plan[d];
         if (t) byType[t]++;
+        const sh = cal.days[d].school;
+        if (sh && !school.includes(sh)) school.push(sh);
         const fx = cal.days[d].fixed;
         if (fx && t && !labels.includes(fx.label)) labels.push(fx.label);
       }
@@ -103,6 +108,7 @@ export function computeBreaks(cal: YearCalendar, plan: Plan): Break[] {
       byType,
       holidays,
       labels,
+      school,
     });
     i = e + 1;
   }
@@ -184,6 +190,8 @@ export interface PlanSummary {
   longest: number;
   /** Alle freien Tage im Jahr (Wochenenden, Feiertage, arbeitsfrei, gebucht) */
   freeDaysInYear: number;
+  /** Eingesetzte Tage, die in den Schulferien liegen */
+  leaveInSchool: number;
   warnings: string[];
 }
 
@@ -192,10 +200,12 @@ export function summarize(cal: YearCalendar, plan: Plan, budget: Budget): PlanSu
   const warnings: string[] = [];
   let unbookable = 0;
   let freeDaysInYear = 0;
+  let leaveInSchool = 0;
   for (const day of cal.days) {
     const t = plan[day.idx];
     if (t) {
       used[t]++;
+      if (day.school) leaveInSchool++;
       if (!isBookable(day) || day.blocked) unbookable++;
     }
     if (day.kind !== 'work' || t) freeDaysInYear++;
@@ -223,6 +233,7 @@ export function summarize(cal: YearCalendar, plan: Plan, budget: Budget): PlanSu
     efficiency: totalLeave > 0 ? breakDays / totalLeave : 0,
     longest: breaks.reduce((m, b) => Math.max(m, b.length), 0),
     freeDaysInYear,
+    leaveInSchool,
     warnings,
   };
 }

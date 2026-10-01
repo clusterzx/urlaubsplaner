@@ -6,7 +6,7 @@
 // Stück man aus den eingesetzten Tagen herausholt. Szenarien unterscheiden sich durch
 // Nebenbedingungen (Mindestlänge, Anzahl Auszeiten, langer Sommerurlaub, gleichmäßige Abstände).
 // Gelöst wird exakt per dynamischer Programmierung über die Arbeitstage des Jahres.
-import { isBookable, type YearCalendar } from './calendar';
+import { isPlannable, type YearCalendar } from './calendar';
 import { dayIndex } from './dates';
 
 export interface ScenarioDef {
@@ -80,6 +80,10 @@ export const SCENARIOS: ScenarioDef[] = [
 export interface OptimizeOptions {
   budget: number;
   requireLongBreak: boolean;
+  /** Bonus (positiv) bzw. Abzug (negativ) je eingesetztem Tag in den Schulferien. */
+  schoolBias?: number;
+  /** Zeitraum (Tagesindizes), in dem die Mitte des Sommerurlaubs liegen soll. */
+  summerWindow?: [number, number];
 }
 
 export interface OptimizeResult {
@@ -97,7 +101,9 @@ export function optimize(cal: YearCalendar, def: ScenarioDef, opts: OptimizeOpti
   const M = work.length;
   const W = work.map((d) => d.idx);
   const fixed = work.map((d) => !!d.fixed);
-  const blocked = work.map((d) => !d.fixed && (!isBookable(d) || !!d.blocked));
+  const blocked = work.map((d) => !isPlannable(d));
+  const inSchool = work.map((d) => !!d.school);
+  const schoolBias = opts.schoolBias ?? 0;
   const pos = (k: number) => (k < 0 ? cal.prevWorkday : k >= M ? cal.nextWorkday : W[k]);
 
   const fixedCount = fixed.filter(Boolean).length;
@@ -125,10 +131,10 @@ export function optimize(cal: YearCalendar, def: ScenarioDef, opts: OptimizeOpti
     holPrefix[clamp(b - lo + 1, 0, span)] - holPrefix[clamp(a - lo, 0, span)];
 
   const long = def.long ?? (opts.requireLongBreak ? { minLen: LONG_MIN, summer: false } : undefined);
-  // Sommerurlaub: Mitte der Auszeit zwischen 20.06. und 05.09., bevorzugt um den 31.07.
-  const summerFrom = dayIndex(cal.year, 5, 20);
-  const summerTo = dayIndex(cal.year, 8, 5);
-  const summerPeak = dayIndex(cal.year, 6, 31);
+  // Sommerurlaub: Mitte der Auszeit zwischen 20.06. und 05.09. (bzw. in den Sommerferien),
+  // bevorzugt um die Mitte dieses Zeitraums.
+  const [summerFrom, summerTo] = opts.summerWindow ?? [dayIndex(cal.year, 5, 20), dayIndex(cal.year, 8, 5)];
+  const summerPeak = opts.summerWindow ? (summerFrom + summerTo) / 2 : dayIndex(cal.year, 6, 31);
 
   // Zustandsraum: (Budget b, Anzahl Auszeiten k, lange Auszeit h, Arbeitswochen seit letzter Auszeit r)
   const baseBreaks = def.maxBreaks ? def.maxBreaks(opts.budget) : null;
@@ -155,12 +161,16 @@ export function optimize(cal: YearCalendar, def: ScenarioDef, opts: OptimizeOpti
     const list: Option[] = [];
     let cost = 0;
     let nonFixed = 0;
+    let schoolDays = 0;
     let hasFixed = false;
     for (let j = i; j < M; j++) {
       if (blocked[j]) break;
       cost++;
       if (fixed[j]) hasFixed = true;
-      else nonFixed++;
+      else {
+        nonFixed++;
+        if (inSchool[j]) schoolDays++;
+      }
       // Feste Zeiten bleiben genau so, wie sie eingetragen sind: nicht verlängern.
       if (hasFixed && nonFixed > 0) break;
       if (nonFixed > maxLeave || cost > B) break;
@@ -172,7 +182,7 @@ export function optimize(cal: YearCalendar, def: ScenarioDef, opts: OptimizeOpti
       const center = (start + end) / 2;
       const inSummer = center >= summerFrom && center <= summerTo;
       const isLong = !!long && L >= long.minLen && (!long.summer || inSummer);
-      let value = L + 0.01 * holidaysBetween(start, end);
+      let value = L + 0.01 * holidaysBetween(start, end) + schoolBias * schoolDays;
       if (isLong && long.summer) value += Math.max(0, 0.2 - 0.004 * Math.abs(center - summerPeak));
       list.push({ next: j + 2, cost, value, long: isLong });
     }

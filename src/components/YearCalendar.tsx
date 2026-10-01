@@ -80,7 +80,7 @@ export function YearCalendar({ cal, plan, summary, brush, today, editedCount, on
         </div>
       </div>
 
-      <Legend />
+      <Legend school={cal.schoolHolidays.length > 0} schoolAll={cal.schoolEnvelope.length > 0} />
 
       <div className="months">
         {months.map((days, m) => {
@@ -104,9 +104,13 @@ export function YearCalendar({ cal, plan, summary, brush, today, editedCount, on
                   if (day.blocked) cls.push('blocked');
                   if (day.past) cls.push('past');
                   if (day.iso === today) cls.push('today');
+                  if (day.school) cls.push('school');
+                  if (day.schoolAll) cls.push('school-all');
                   const parts = [`${WEEKDAYS_LONG[day.weekday]}, ${formatDate(day.iso)}`];
                   if (day.holiday) parts.push(day.holiday);
                   if (day.freeLabel) parts.push(day.freeLabel);
+                  if (day.school) parts.push(day.school);
+                  if (day.schoolAll) parts.push(`${day.schoolAll} (bundesweiter Zeitraum)`);
                   if (t) parts.push(LEAVE_LONG_LABEL[t]);
                   if (day.fixed) parts.push(`Fest: ${day.fixed.label}`);
                   if (day.blocked) parts.push(`Sperre: ${day.blocked}`);
@@ -141,7 +145,7 @@ export function YearCalendar({ cal, plan, summary, brush, today, editedCount, on
   );
 }
 
-function Legend() {
+function Legend({ school, schoolAll }: { school: boolean; schoolAll: boolean }) {
   return (
     <ul className="legend" aria-label="Legende">
       <li><span className="sw t-vacation" />{LEAVE_LABEL.vacation}</li>
@@ -153,6 +157,8 @@ function Legend() {
       <li><span className="sw in-break" />frei in Auszeit</li>
       <li><span className="sw fixed" />Feste Zeit</li>
       <li><span className="sw blocked" />Urlaubssperre</li>
+      {school && <li><span className="sw school" />Schulferien</li>}
+      {schoolAll && <li><span className="sw school-all" />Ferien bundesweit (frühester Beginn – spätestes Ende)</li>}
     </ul>
   );
 }

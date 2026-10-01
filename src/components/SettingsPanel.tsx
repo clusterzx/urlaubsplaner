@@ -1,6 +1,7 @@
 import { formatNumber, WEEKDAYS_SHORT } from '../lib/dates';
 import { NumberInput } from './NumberInput';
-import { regionalOptionsFor, STATES, type StateCode } from '../lib/holidays';
+import { regionalOptionsFor, stateName, STATES, type StateCode } from '../lib/holidays';
+import { SCHOOL_MODE_LABEL, type SchoolMode } from '../lib/schoolHolidays';
 import type { Budget } from '../lib/plan';
 import { LEAVE_LABEL, type AllocationMode, type LeaveType, type Settings } from '../lib/types';
 
@@ -9,6 +10,8 @@ interface Props {
   budget: Budget;
   onChange: (patch: Partial<Settings>) => void;
   currentYear: number;
+  /** Hinweis zur Herkunft bzw. zum Ladezustand der Ferientermine */
+  schoolStatus?: string;
 }
 
 const ORDERS: LeaveType[][] = [
@@ -20,7 +23,7 @@ const ORDERS: LeaveType[][] = [
   ['vacation', 'overtime', 'eza'],
 ];
 
-export function SettingsPanel({ settings, budget, onChange, currentYear }: Props) {
+export function SettingsPanel({ settings, budget, onChange, currentYear, schoolStatus }: Props) {
   const years: number[] = [];
   for (let y = currentYear - 1; y <= currentYear + 6; y++) years.push(y);
   if (!years.includes(settings.year)) years.push(settings.year);
@@ -78,6 +81,35 @@ export function SettingsPanel({ settings, budget, onChange, currentYear }: Props
           ))}
         </div>
       )}
+
+      <fieldset className="subsection">
+        <legend className="field-label">Schulferien</legend>
+        <label className="field">
+          <span className="field-label">Ferien von</span>
+          <select
+            value={settings.schoolState}
+            onChange={(e) => onChange({ schoolState: e.target.value as StateCode | 'same' })}
+          >
+            <option value="same">Wie oben ({stateName(settings.state)})</option>
+            {STATES.map((s) => (
+              <option key={s.code} value={s.code}>{s.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Bei der Planung</span>
+          <select value={settings.schoolMode} onChange={(e) => onChange({ schoolMode: e.target.value as SchoolMode })}>
+            {(Object.keys(SCHOOL_MODE_LABEL) as SchoolMode[]).map((m) => (
+              <option key={m} value={m}>{SCHOOL_MODE_LABEL[m]}</option>
+            ))}
+          </select>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={settings.schoolAll} onChange={(e) => onChange({ schoolAll: e.target.checked })} />
+          <span>Ferienzeitraum aller Bundesländer einblenden (frühester Beginn – spätestes Ende)</span>
+        </label>
+        {schoolStatus && <span className="field-hint">{schoolStatus}</span>}
+      </fieldset>
 
       <div className="grid-2">
         {numberField('vacationDays', 'Urlaubstage', { suffix: 'Tage', hint: 'Jahresurlaub' })}

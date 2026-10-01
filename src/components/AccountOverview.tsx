@@ -5,10 +5,11 @@ import { LEAVE_LONG_LABEL, LEAVE_TYPES } from '../lib/types';
 interface Props {
   summary: PlanSummary;
   budget: Budget;
+  showSchool: boolean;
 }
 
 /** Kontenübersicht: Urlaub, EZA und Gleitzeit getrennt. */
-export function AccountOverview({ summary, budget }: Props) {
+export function AccountOverview({ summary, budget, showSchool }: Props) {
   return (
     <section aria-labelledby="accounts-title">
       <div className="section-head">
@@ -62,6 +63,12 @@ export function AccountOverview({ summary, budget }: Props) {
             aus {summary.totalLeave} eingesetzten Tagen · Faktor {formatNumber(summary.efficiency, 2)}×
             <br />
             {summary.freeDaysInYear} freie Tage im Jahr insgesamt
+            {showSchool && (
+              <>
+                <br />
+                {summary.leaveInSchool} von {summary.totalLeave} eingesetzten Tagen in den Schulferien
+              </>
+            )}
           </div>
         </div>
       </div>

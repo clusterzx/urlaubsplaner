@@ -1,7 +1,8 @@
 // Baut den Tageskalender eines Jahres: Arbeitstag, Wochenende, Feiertag oder arbeitsfrei,
-// inklusive fester Zeiten und Sperren.
+// inklusive fester Zeiten, Sperren und Schulferien.
 import { daysInYear, indexOfIso, isoOfIndex, weekdayOfIndex } from './dates';
 import { getHolidays, type Holiday } from './holidays';
+import type { SchoolEnvelope, SchoolHoliday } from './schoolHolidays';
 import type { LeaveType, Period, Settings } from './types';
 
 export type DayKind = 'work' | 'weekend' | 'holiday' | 'free';
@@ -24,12 +25,24 @@ export interface DayInfo {
   blocked?: string;
   /** Liegt vor dem heutigen Tag und wird nicht verplant. */
   past?: boolean;
+  /** Name der Schulferien (gewähltes Bundesland), in die der Tag fällt. */
+  school?: string;
+  /** Ferienart, die in mindestens einem Bundesland gerade läuft (bundesweiter Zeitraum). */
+  schoolAll?: string;
+  /** Modus „nur in den Ferien“: Arbeitstag außerhalb der Schulferien wird nicht verplant. */
+  outsideSchool?: boolean;
 }
 
 export interface YearCalendar {
   year: number;
   days: DayInfo[];
   holidays: Holiday[];
+  /** Schulferien des gewählten Bundeslandes, die das Jahr berühren */
+  schoolHolidays: SchoolHoliday[];
+  /** Bundesweite Ferienzeiträume (frühester Beginn – spätestes Ende) */
+  schoolEnvelope: SchoolEnvelope[];
+  /** Sommerferien als Tagesindizes, falls bekannt */
+  summerSchool?: [number, number];
   /** Erster Tagesindex (negativ) des erweiterten Bereichs ins Vorjahr. */
   extStart: number;
   /** Ist der Tag mit Index idx (auch außerhalb des Jahres) ohne Urlaubsbuchung frei? */
@@ -50,7 +63,13 @@ interface KindInfo {
   freeLabel?: string;
 }
 
-export function buildCalendar(settings: Settings, periods: Period[], today?: string): YearCalendar {
+export function buildCalendar(
+  settings: Settings,
+  periods: Period[],
+  today?: string,
+  schoolHolidays: SchoolHoliday[] = [],
+  schoolEnvelope: SchoolEnvelope[] = [],
+): YearCalendar {
   const { year } = settings;
   const n = daysInYear(year);
   const holidayMap = new Map<number, string>();
@@ -92,6 +111,24 @@ export function buildCalendar(settings: Settings, periods: Period[], today?: str
     return { kind: 'work' };
   };
 
+  const schoolMap = new Map<number, string>();
+  let summerSchool: [number, number] | undefined;
+  for (const h of schoolHolidays) {
+    const a = indexOfIso(year, h.from);
+    const b = indexOfIso(year, h.to);
+    if (a === null || b === null) continue;
+    for (let i = Math.max(0, a); i <= Math.min(n - 1, b); i++) schoolMap.set(i, h.name);
+    if (/sommer/i.test(h.name) && a >= 0 && b < n) summerSchool = [a, b];
+  }
+  const onlySchool = settings.schoolMode === 'only' && schoolHolidays.length > 0;
+  const allMap = new Map<number, string>();
+  for (const h of schoolEnvelope) {
+    const a = indexOfIso(year, h.from);
+    const b = indexOfIso(year, h.to);
+    if (a === null || b === null) continue;
+    for (let i = Math.max(0, a); i <= Math.min(n - 1, b); i++) allMap.set(i, h.name);
+  }
+
   // Nur im laufenden Jahr relevant – andere Jahre werden vollständig geplant.
   const cutoff = settings.excludePast && today?.startsWith(`${year}-`) ? indexOfIso(year, today) : null;
 
@@ -107,6 +144,10 @@ export function buildCalendar(settings: Settings, periods: Period[], today?: str
       weekday: weekdayOfIndex(year, idx),
       ...k,
     };
+    const school = schoolMap.get(idx);
+    if (school) day.school = school;
+    const schoolAll = allMap.get(idx);
+    if (schoolAll) day.schoolAll = schoolAll;
     if (day.kind === 'work') {
       if (cutoff !== null && idx < cutoff) {
         day.past = true;
@@ -114,6 +155,7 @@ export function buildCalendar(settings: Settings, periods: Period[], today?: str
         const fp = fixedMap.get(idx);
         if (fp) day.fixed = { periodId: fp.id, label: fp.label || 'Fester Urlaub', leaveType: fp.leaveType };
         else if (blockedMap.has(idx)) day.blocked = blockedMap.get(idx);
+        else if (onlySchool && !school) day.outsideSchool = true;
       }
     }
     days.push(day);
@@ -146,6 +188,9 @@ export function buildCalendar(settings: Settings, periods: Period[], today?: str
     year,
     days,
     holidays: allHolidays[year],
+    schoolHolidays,
+    schoolEnvelope,
+    summerSchool,
     extStart: -EXT,
     offAt,
     labelAt,
@@ -157,4 +202,10 @@ export function buildCalendar(settings: Settings, periods: Period[], today?: str
 /** Ein Tag, an dem Urlaub/EZA/Gleitzeit überhaupt gebucht werden kann. */
 export function isBookable(day: DayInfo): boolean {
   return day.kind === 'work' && !day.past;
+}
+
+/** Ein Tag, den die Planung (Szenarien, Brückentage-Finder) verwenden darf. */
+export function isPlannable(day: DayInfo): boolean {
+  if (day.fixed) return true;
+  return isBookable(day) && !day.blocked && !day.outsideSchool;
 }

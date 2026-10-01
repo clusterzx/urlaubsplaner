@@ -1,5 +1,6 @@
 import { regionalOptionsFor, STATES } from './holidays';
 import { normalizeOrder } from './plan';
+import { SCHOOL_MODE_LABEL } from './schoolHolidays';
 import type { Period, Settings } from './types';
 
 export function defaultYear(now = new Date()): number {
@@ -25,6 +26,9 @@ export function defaultSettings(): Settings {
     excludePast: true,
     allocationOrder: ['overtime', 'eza', 'vacation'],
     allocationMode: 'shortFirst',
+    schoolMode: 'show',
+    schoolState: 'same',
+    schoolAll: false,
   };
 }
 
@@ -64,6 +68,9 @@ export function sanitizeSettings(raw: unknown): Settings {
     excludePast: typeof r.excludePast === 'boolean' ? r.excludePast : d.excludePast,
     allocationOrder: normalizeOrder(r.allocationOrder),
     allocationMode: r.allocationMode === 'chronological' ? 'chronological' : 'shortFirst',
+    schoolMode: r.schoolMode && r.schoolMode in SCHOOL_MODE_LABEL ? r.schoolMode : d.schoolMode,
+    schoolState: STATES.some((s) => s.code === r.schoolState) ? r.schoolState! : 'same',
+    schoolAll: typeof r.schoolAll === 'boolean' ? r.schoolAll : d.schoolAll,
   };
 }
 

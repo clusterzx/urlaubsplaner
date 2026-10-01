@@ -25,6 +25,10 @@
   --in-break: #e0ecff;
   --warn-bg: #fff7ed;
   --warn-ink: #9a3412;
+  --school: #65a30d;
+  --school-soft: #ecfccb;
+  --school-all: #0891b2;
+  --school-all-soft: #cffafe;
 
   --radius: 12px;
   --radius-sm: 8px;
@@ -59,6 +63,10 @@
     --in-break: #1b2d4d;
     --warn-bg: #3b2410;
     --warn-ink: #fdba74;
+    --school: #a3e635;
+    --school-soft: #2a3a12;
+    --school-all: #22d3ee;
+    --school-all-soft: #123a44;
     --shadow: none;
     color-scheme: dark;
   }
@@ -88,6 +96,10 @@
   --in-break: #1b2d4d;
   --warn-bg: #3b2410;
   --warn-ink: #fdba74;
+  --school: #a3e635;
+  --school-soft: #2a3a12;
+  --school-all: #22d3ee;
+  --school-all-soft: #123a44;
   --shadow: none;
   color-scheme: dark;
 }
@@ -1093,6 +1105,52 @@ button.day:hover {
   opacity: 0.4;
 }
 
+/* Schulferien: Balken am unteren Rand des Tages */
+.day.school::after,
+.sw.school::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 2px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--school);
+}
+
+.sw.school,
+.sw.school-all {
+  position: relative;
+}
+
+/* Bundesweiter Ferienzeitraum: Balken am oberen Rand */
+.day.school-all::before,
+.sw.school-all::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 2px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--school-all);
+}
+
+.subsection {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px 10px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.subsection > legend {
+  padding: 0 4px;
+}
+
 .day.today {
   outline: 2px solid var(--holiday);
   outline-offset: 1px;
@@ -1348,6 +1406,53 @@ details.holidays[open] > summary h2::before {
   border-radius: 999px;
   background: var(--weekend-bg);
   color: var(--muted);
+  white-space: nowrap;
+}
+
+.tag-school {
+  background: var(--school-soft);
+  color: var(--ink-2);
+  box-shadow: inset 2px 0 0 var(--school);
+}
+
+.list-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink-2);
+  margin: 4px 16px 6px;
+}
+
+.list-note {
+  margin: 0 16px 14px;
+  font-size: 12px;
+}
+
+.h-range {
+  width: 190px;
+}
+
+.h-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+}
+
+.h-detail {
+  font-size: 12px;
+}
+
+.holiday-list.school-list {
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+}
+
+@media (max-width: 520px) {
+  .holiday-list.school-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .h-range {
+    width: 140px;
+  }
 }
 
 /* ---------- Footer ---------- */
