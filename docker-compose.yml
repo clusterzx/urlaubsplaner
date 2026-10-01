@@ -1,0 +1,8 @@
+services:
+  urlaubsplaner:
+    build: .
+    image: urlaubsplaner:latest
+    container_name: urlaubsplaner
+    ports:
+      - "6534:6534"
+    restart: unless-stopped
