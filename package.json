@@ -1,0 +1,14 @@
+{
+  "name": "urlaubsplaner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Urlaubsplaner: Urlaub, EZA und Gleittage optimal um Feiertage legen, mit Szenarien und PDF-Export.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "npx --yes serve ."
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
