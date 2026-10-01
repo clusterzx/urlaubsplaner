@@ -29,6 +29,34 @@ Es gibt keinen Build-Schritt und keine Abhängigkeiten zur Laufzeit.
 - **Direkt:** `index.html` im Browser öffnen.
 - **Lokaler Server (optional):** `npx serve .` oder `python3 -m http.server` und dann `http://localhost:3000` bzw. `:8000` aufrufen.
 - **GitHub Pages:** In den Repository-Einstellungen unter *Pages* „Deploy from a branch“ wählen, Branch und Ordner `/ (root)` angeben.
+- **Docker:** siehe unten, die App läuft dann auf Port **6533**.
+
+## Docker
+
+Das Image basiert auf `nginxinc/nginx-unprivileged` (nginx ohne Root-Rechte) und liefert die App auf Port **6533** aus.
+
+Mit Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+Oder direkt mit Docker:
+
+```bash
+docker build -t urlaubsplaner .
+docker run -d --name urlaubsplaner -p 6533:6533 --restart unless-stopped urlaubsplaner
+```
+
+Danach ist die App unter `http://localhost:6533` bzw. `http://<server>:6533` erreichbar.
+
+- **Anderer Port auf dem Host:** nur die linke Seite der Port-Zuordnung ändern, z. B. `-p 8080:6533` bzw. `"8080:6533"` in `docker-compose.yml`.
+- **Healthcheck:** `GET /healthz` liefert `ok`. Docker prüft das automatisch (`docker ps` zeigt `healthy`).
+- **Update:** `git pull && docker compose up -d --build`
+- **Hinter einem Reverse-Proxy** (Traefik, Caddy, nginx) einfach auf `http://urlaubsplaner:6533` weiterleiten.
+- In `docker ps` taucht zusätzlich `8080/tcp` auf. Das stammt aus dem Basis-Image und wird nicht genutzt.
+
+Die Daten der Nutzer (Eingaben, feste Zeiträume) liegen im Browser, nicht im Container. Ein Volume ist daher nicht nötig.
 
 ## Tests
 
@@ -60,6 +88,7 @@ Die Tests (Node ≥ 18, `node:test`) prüfen Feiertage und Osterdaten, Kalenderw
 | `js/app.js` | Oberfläche und Speicherung |
 | `vendor/jspdf.umd.min.js` | [jsPDF](https://github.com/parallax/jsPDF) 4.2.1 (MIT-Lizenz, siehe `vendor/jspdf.LICENSE`) |
 | `tests/` | Automatische Tests |
+| `Dockerfile`, `docker-compose.yml`, `docker/nginx.conf` | Container-Image mit nginx auf Port 6533 |
 
 ## Hinweise
 

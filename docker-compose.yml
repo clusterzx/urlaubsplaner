@@ -1,0 +1,13 @@
+services:
+  urlaubsplaner:
+    build: .
+    image: urlaubsplaner:latest
+    container_name: urlaubsplaner
+    ports:
+      - "6533:6533"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
